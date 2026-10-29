@@ -89,7 +89,23 @@ object Settings {
     fun alwaysList(c: Context) = prefs(c).getBoolean("alwaysList", false)
     fun matchFrameRate(c: Context) = prefs(c).getBoolean("matchFrameRate", true)
     fun passthrough(c: Context) = prefs(c).getBoolean("passthrough", false)
-    fun subtitles(c: Context) = prefs(c).getBoolean("subtitles", true)
+    fun clearDialogue(c: Context) = prefs(c).getBoolean("clearDialogue", false)
+    fun setClearDialogue(c: Context, on: Boolean) = prefs(c).edit().putBoolean("clearDialogue", on).apply()
+    /** "on", "foreign" (only when audio differs or forced), "off". Migrates old Boolean "subtitles". */
+    fun subPref(c: Context): String {
+        val p = prefs(c)
+        val key = profileKey(c, "subPref")
+        val oldKey = "subtitles"
+        if (!p.contains(key)) {
+            val fallback = if (p.contains(oldKey)) {
+                val oldBool = runCatching { p.getBoolean(oldKey, true) }.getOrDefault(true)
+                if (oldBool) "on" else "off"
+            } else "on"
+            p.edit().putString(key, fallback).remove(oldKey).apply()
+        }
+        return p.getString(key, "on").orEmpty().ifEmpty { "on" }
+    }
+    fun subtitles(c: Context) = subPref(c) != "off"
     /** Two-letter code of the dub to start with: the TV's language unless one is picked. */
     fun audioLanguage(c: Context): String = prefs(c).getString(profileKey(c, "audioLang"), prefs(c).getString("audioLang", ""))
         .orEmpty().ifEmpty { Languages.code(Locale.getDefault().toLanguageTag()) ?: "en" }
@@ -187,14 +203,16 @@ class SettingsActivity : Screen() {
             listOf(true to "On", false to "Off")),
         Choice("passthrough", "Audio output", "Receiver sends Dolby and DTS untouched to a soundbar or receiver. TV speakers decodes the sound here, which always works.",
             listOf(false to "TV speakers", true to "Receiver")),
+        Choice("clearDialogue", "Clear dialogue", "Lifts voices above music and loud effects when using TV speakers.",
+            listOf(false to "Off", true to "On")),
     )
     private val dubbed = listOf(
         Choice("dub", "Dubbed releases", "Original first puts dubbed releases last; My language first uses this profile's audio language.",
             listOf("" to "No preference", "original" to "Original first", "mine" to "My language first"), true),
     )
     private val subtitles = listOf(
-        Choice("subtitles", "Subtitles by default", "Subtitles in your subtitle language start with the video when available.",
-            listOf(true to "On", false to "Off")),
+        Choice("subPref", "Subtitles by default", "Subtitles in your subtitle language start with the video when available.",
+            listOf("on" to "Always on", "foreign" to "Foreign audio only", "off" to "Off"), true),
     )
     private val subtitleLooks = listOf(
         Choice("subSize", "Subtitle size", "How big subtitles are on screen.",
@@ -224,6 +242,7 @@ class SettingsActivity : Screen() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Settings.hdrPref(this) // migrate the old HDR switch before any row reads it
+        Settings.subPref(this) // migrate the old subtitles switch before any row reads it
         val width = resources.displayMetrics.widthPixels / resources.displayMetrics.density
         val height = resources.displayMetrics.heightPixels / resources.displayMetrics.density
         val root = FrameLayout(this).apply { setBackgroundColor(BASE); clipChildren = false; clipToPadding = false }

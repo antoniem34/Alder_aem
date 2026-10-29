@@ -315,4 +315,13 @@ class ScreenDesignTest {
         assertEquals(e3, Library.nextEpisodeAfterSeason(videos, 1))
         assertEquals(null, Library.nextEpisodeAfterSeason(videos, 2))
     }
+
+    @Test fun subtitleTimingLabelsFormatCorrectly() {
+        assertEquals("On time", formatTiming(0L))
+        assertEquals("-0.25 s  earlier", formatTiming(-250L))
+        assertEquals("-1.00 s  earlier", formatTiming(-1000L))
+        assertEquals("+0.25 s  later", formatTiming(250L))
+        assertEquals("+0.50 s  later", formatTiming(500L))
+        assertEquals("+2.50 s  later", formatTiming(2500L))
+    }
 }

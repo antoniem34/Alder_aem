@@ -17,6 +17,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **Clear dialogue.** Turn on **Settings → Clear dialogue** to boost voices above music and loud effects on TV speakers. You can also turn it on while you watch.
+- **Foreign audio subtitles.** Alder can start subtitles automatically only when the audio is in a different language. Select **Settings → Subtitles → Foreign audio only**.
 - **Still watching?** If you do not press a remote button for 3 episodes, Alder stops before the next episode. Select **Play** or **Exit to Home**.
 - **Sleep timer.** In the player, select **Audio & subtitles**, then select **Sleep**. Choose **After this episode** or **In 60 min**.
 - **Mark episodes as watched.** Hold OK on an episode in the episode guide. Select **Mark as watched**, **Mark as unwatched**, or **Mark previous episodes watched**. Hold OK on a season button to mark all episodes of that season.
@@ -31,6 +33,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
+- **Live subtitle sync.** Adjust subtitle timing with Left and Right while the video plays. This works for embedded subtitles and add-on subtitles.
 - **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
 - **Close player controls.** Press Back to close the controls while the video plays. Press Back again to leave the player.
 - **Exact subtitle remembered.** When you play a video again, Alder uses the exact subtitle track that you selected before.
