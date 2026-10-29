@@ -65,6 +65,7 @@ class PlayerActivity : Screen() {
     private val type by lazy { intent.getStringExtra("type") ?: "movie" }
     private val metaId by lazy { intent.getStringExtra("id")!! }
     private val videoId by lazy { intent.getStringExtra("videoId")!! }
+    private val isTrailer by lazy { intent.getBooleanExtra("isTrailer", false) }
 
     // The title's library item. Null when it couldn't be loaded: then nothing is saved, rather than
     // overwriting real history with a blank item.
@@ -184,7 +185,7 @@ class PlayerActivity : Screen() {
             background = glass(10)
             visibility = View.GONE
         }
-        fetchSegments()
+        if (!isTrailer) fetchSegments()
         options = FrameLayout(this).apply { visibility = View.GONE }
         screen = FrameLayout(this).apply {
             addView(view, FrameLayout.LayoutParams(-1, -1))
@@ -202,15 +203,15 @@ class PlayerActivity : Screen() {
         }) { r ->
             meta = r.getOrNull()
             val m = meta ?: return@background
-            val episode = m.videos.firstOrNull { it.id == videoId }
+            val episode = if (isTrailer) null else m.videos.firstOrNull { it.id == videoId }
             pauseTitle.text = episode?.title?.takeIf { it.isNotBlank() } ?: m.name
-            subtitle.text = episode?.let { "S${it.season} E${it.episode}" } ?: m.year.orEmpty()
+            subtitle.text = if (isTrailer) "Trailer" else episode?.let { "S${it.season} E${it.episode}" } ?: m.year.orEmpty()
             Images.load(m.logo ?: Images.logoFor(m.id), playerLogo, dp(300), urgent = true, failed = {
                 playerLogo.visibility = View.GONE; topName.visibility = View.VISIBLE
             }) {
                 playerLogo.visibility = View.VISIBLE; topName.visibility = View.GONE
             }
-            nextCell.visibility = if (nextVideo() == null) View.GONE else View.VISIBLE
+            nextCell.visibility = if (isTrailer || nextVideo() == null) View.GONE else View.VISIBLE
         }
 
         player.addListener(object : Player.Listener {
@@ -255,14 +256,20 @@ class PlayerActivity : Screen() {
                 main.removeCallbacks(startTimeout)
                 player.videoFormat?.frameRate?.let(::matchFrameRate)
                 // Next time: the same release for this video, and the same group (release and quality) for the next episode.
-                val s = sources[at]
-                getSharedPreferences("sources", MODE_PRIVATE).edit()
-                    .putString("file:$videoId", s.filename).putString("binge:$metaId", s.bingeGroup).apply()
+                if (!isTrailer) {
+                    val s = sources[at]
+                    getSharedPreferences("sources", MODE_PRIVATE).edit()
+                        .putString("file:$videoId", s.filename).putString("binge:$metaId", s.bingeGroup).apply()
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
                 // At the real end the next episode starts, unless the viewer chose to watch the credits.
                 if (state == Player.STATE_ENDED) {
+                    if (isTrailer) {
+                        finish()
+                        return
+                    }
                     // shortcut: sub-two-minute series streams are treated as addon placeholders; revisit for short-form shows.
                     if (type == "series" && !plausibleEpisode(player.duration)) {
                         started = false // retry from the original resume point, not the placeholder's short ending
@@ -333,10 +340,10 @@ class PlayerActivity : Screen() {
         })
 
         // "Start Over" plays from the beginning; a switch to a lower quality carries its own second.
-        val known = if (intent.getBooleanExtra("startOver", false)) 0L else intent.getLongExtra("resumeAt", -1L).takeIf { it >= 0 }
+        val known = if (isTrailer || intent.getBooleanExtra("startOver", false)) 0L else intent.getLongExtra("resumeAt", -1L).takeIf { it >= 0 }
         // The addon's subtitles are waited for (SUB_WAIT at most) so a file in the profile's language is attached from
         // the start: attaching one later means loading the source again. The latest resume point asked for wins.
-        var subsAnswered = !subsOn
+        var subsAnswered = isTrailer || !subsOn
         var waiting: Long? = null
         fun begin(resume: Long) {
             if (prepared) return
@@ -344,8 +351,14 @@ class PlayerActivity : Screen() {
             load(resume)
             lastPosition = resume
             prepared = true
-            main.postDelayed(tickTask, TICK)
-            main.post(skipTask)
+            if (!isTrailer) {
+                main.postDelayed(tickTask, TICK)
+                main.post(skipTask)
+            }
+        }
+        if (isTrailer) {
+            begin(0L)
+            return
         }
         val waitMs = if (pickedSub?.startsWith("addon:") == true) 3_500L else SUB_WAIT
         val stopWaiting = Runnable { subsAnswered = true; waiting?.let(::begin) }
@@ -497,6 +510,18 @@ class PlayerActivity : Screen() {
             android.util.Log.w("Alder", "Source failed: $reason; trying another")
             return load(position, "That source failed · trying the next one")
         }
+        if (isTrailer) {
+            intent.getStringExtra("trailerYtId")?.takeIf { it.isNotBlank() }?.let { ytId ->
+                val opened = runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("vnd.youtube:$ytId")))
+                }.isSuccess
+                if (!opened) runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=$ytId")))
+                }
+            }
+            finish()
+            return
+        }
         if (intent.getBooleanExtra("picked", false)) {
             showSourceError()
             player.stop()
@@ -550,8 +575,10 @@ class PlayerActivity : Screen() {
         super.onStart()
         if (prepared) {
             lastPosition = player.currentPosition
-            main.postDelayed(tickTask, TICK)
-            main.post(skipTask)
+            if (!isTrailer) {
+                main.postDelayed(tickTask, TICK)
+                main.post(skipTask)
+            }
             if (loading.visibility == View.VISIBLE && player.playbackState == Player.STATE_BUFFERING)
                 main.post(loadingTask)
         }
@@ -560,7 +587,7 @@ class PlayerActivity : Screen() {
     private fun record() {
         // Nothing is saved until a picture shows: a source that never starts would otherwise reset the resume point.
         // Live TV has no progress to keep, nor does a channel or event whose stream doesn't say it's live.
-        if (!started || player.isCurrentMediaItemLive || isLiveType(type)) return
+        if (isTrailer || !started || player.isCurrentMediaItemLive || isLiveType(type)) return
         if (type == "series" && !plausibleEpisode(player.duration)) return
         val item = item ?: return
         val position = player.currentPosition
@@ -724,7 +751,7 @@ class PlayerActivity : Screen() {
     }
 
     private fun push() {
-        if (!watched || player.isCurrentMediaItemLive || isLiveType(type)) return
+        if (isTrailer || !watched || player.isCurrentMediaItemLive || isLiveType(type)) return
         val key = authKey ?: return
         val snapshot = item?.let { JSONObject(it.toString()) } ?: return
         background({ Stremio.saveLibrary(key, listOf(snapshot)) }) {}
@@ -871,10 +898,10 @@ class PlayerActivity : Screen() {
             ?: name, SERIF_HERO, serif = true).onArt().apply {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         }
-        subtitle = text(intent.getStringExtra("episode")?.substringBefore("  ·  ").orEmpty(), SMALL, color = TEXT_2).onArt()
+        subtitle = text(if (isTrailer) "Trailer" else intent.getStringExtra("episode")?.substringBefore("  ·  ").orEmpty(), SMALL, color = TEXT_2).onArt()
         pauseFacts = text("", SMALL, color = TEXT_2).onArt()
         pauseInfo = column(Gravity.START).apply {
-            addView(caps("Paused", TUNGSTEN).onArt())
+            addView(caps(if (isTrailer) "Trailer" else "Paused", TUNGSTEN).onArt())
             addView(pauseTitle, LinearLayout.LayoutParams(dp(480), -2).apply { topMargin = dp(6) })
             addView(pauseFacts, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
         }
@@ -919,15 +946,19 @@ class PlayerActivity : Screen() {
         val buttons = LinearLayout(this).apply {
             clipChildren = false // a focused button's label is wider than its cell
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            addView(buttonCell(audioButton))
-            addView(buttonCell(streamButton))
-            addView(View(context).apply { setBackgroundColor(GLASS_EDGE) },
-                LinearLayout.LayoutParams(dp(1), dp(22)).apply { topMargin = dp(14); marginEnd = dp(10) })
+            if (!isTrailer) {
+                addView(buttonCell(audioButton))
+                addView(buttonCell(streamButton))
+                addView(View(context).apply { setBackgroundColor(GLASS_EDGE) },
+                    LinearLayout.LayoutParams(dp(1), dp(22)).apply { topMargin = dp(14); marginEnd = dp(10) })
+            }
             addView(buttonCell(playPause, true))
-            addView(View(context).apply { setBackgroundColor(GLASS_EDGE) },
-                LinearLayout.LayoutParams(dp(1), dp(22)).apply { topMargin = dp(14); marginStart = dp(10) })
-            addView(nextCell)
-            addView(buttonCell(infoButton))
+            if (!isTrailer) {
+                addView(View(context).apply { setBackgroundColor(GLASS_EDGE) },
+                    LinearLayout.LayoutParams(dp(1), dp(22)).apply { topMargin = dp(14); marginStart = dp(10) })
+                addView(nextCell)
+                addView(buttonCell(infoButton))
+            }
         }
         for (button in listOf(audioButton, streamButton, playPause, nextButton, infoButton))
             button.nextFocusUpId = bar.id
@@ -969,10 +1000,6 @@ class PlayerActivity : Screen() {
             addView(length, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                 rightMargin = dp(PAD); bottomMargin = dp(91)
             })
-            addView(trackStatus, FrameLayout.LayoutParams(dp(420), -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-                bottomMargin = dp(91)
-            })
-            trackStatus.gravity = Gravity.CENTER
             addView(buttons, FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM).apply {
                 bottomMargin = dp(11)
             })
@@ -1077,7 +1104,8 @@ class PlayerActivity : Screen() {
         val end = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + remaining))
         pauseFacts.text = listOfNotNull(subtitle.text.toString().takeIf { it.isNotBlank() },
             if (live || duration <= 0) null else runtime("${(remaining / 60_000).coerceAtLeast(1)} min") + " left",
-            if (live || duration <= 0) null else "Ends $end").joinToString(DOT)
+            if (isTrailer || live || duration <= 0) null else "Ends $end",
+            trackStatus.text.toString().takeIf { it.isNotBlank() && !isTrailer }).joinToString(DOT)
         main.postDelayed(progressTask, 500)
     }
 
@@ -1324,7 +1352,7 @@ class PlayerActivity : Screen() {
         main.removeCallbacks(skipTask)
         main.removeCallbacks(loadingTask)
         player.pause()
-        if (!watched || player.isCurrentMediaItemLive || isLiveType(type) || type == "series" && !plausibleEpisode(player.duration)) return
+        if (isTrailer || !watched || player.isCurrentMediaItemLive || isLiveType(type) || type == "series" && !plausibleEpisode(player.duration)) return
         record()
         // The player's own episode list first: Home's Resume passes no next episode when the title's details weren't in
         // yet, and a finished episode with no next one drops the title out of Continue Watching.

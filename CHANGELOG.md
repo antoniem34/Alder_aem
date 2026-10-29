@@ -17,6 +17,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **Trailers on the title page.** Select **▷ Trailer** on a movie or show to play its trailer. Alder does not add trailers to your watch history.
 - **New episode tags.** A tungsten tag shows on Continue Watching when a new episode is available.
 - **Protect unreleased episodes.** Alder shows the air date for future episodes and disables playback until they air.
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
@@ -36,6 +37,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
+- **Cleaner player controls.** The audio and subtitle status now sits in the pause details instead of above the Play button.
 - **Back button on Android 16.** The Back button closes panels and player controls correctly on Android 16.
 
 ## 1.2
