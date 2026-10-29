@@ -224,7 +224,22 @@ class Meta(json: JSONObject) {
     val runtime = json.text("runtime")?.let(::runtime)
     val rating = json.text("imdbRating")
     val genres = json.optJSONArray("genres").strings().take(3)
-    val cast = json.optJSONArray("cast").strings()
+    val directors: List<String> = (json.optJSONArray("director") ?: json.optJSONArray("directors"))?.strings()
+        ?: json.text("director")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+        ?: emptyList()
+    val castMembers: List<CastMember> = (json.optJSONArray("cast") ?: json.optJSONArray("actors"))?.items()?.mapNotNull { item ->
+        when (item) {
+            is String -> item.trim().takeIf { it.isNotBlank() }?.let { CastMember(it) }
+            is JSONObject -> {
+                val name = item.text("name") ?: item.text("actor") ?: return@mapNotNull null
+                val character = item.text("character") ?: item.text("role")
+                val photo = item.text("photo") ?: item.text("image") ?: item.text("profile") ?: item.text("thumbnail")
+                CastMember(name.trim(), character?.trim(), photo?.trim())
+            }
+            else -> null
+        }
+    } ?: emptyList()
+    val cast: List<String> = castMembers.map { it.name }
     val info = listOfNotNull(year, runtime, genres.joinToString(" · ").ifEmpty { null }).joinToString("   ")
 
     /** Episodes in play order: by season then episode, specials (season 0) last. */
@@ -246,6 +261,31 @@ class Subtitle(val url: String, val lang: String, val addon: String) {
             it.endsWith(".vtt") -> MimeTypes.TEXT_VTT
             it.endsWith(".ass") || it.endsWith(".ssa") -> MimeTypes.TEXT_SSA
             else -> MimeTypes.APPLICATION_SUBRIP
+        }
+    }
+}
+
+internal fun parseCastMember(name: String?, character: String? = null, photo: String? = null, role: String = "actor", tmdbId: Int? = null): CastMember? {
+    val cleanName = name?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    return CastMember(cleanName, character?.trim()?.takeIf { it.isNotBlank() }, photo?.trim()?.takeIf { it.isNotBlank() })
+}
+
+class CastMember(
+    val name: String,
+    val character: String? = null,
+    val photo: String? = null,
+    val role: String = "actor",
+    val tmdbId: Int? = null,
+) {
+    val isDirector: Boolean get() = role == "director"
+    val initials: String get() {
+        val parts = name.trim().split(Regex("""\s+""")).filter {
+            it.isNotBlank() && it.lowercase().trimEnd('.') !in setOf("jr", "sr", "ii", "iii", "iv")
+        }.ifEmpty { name.trim().split(Regex("""\s+""")).filter { it.isNotBlank() } }
+        return when {
+            parts.isEmpty() -> ""
+            parts.size == 1 -> parts[0].take(1).uppercase()
+            else -> (parts.first().take(1) + parts.last().take(1)).uppercase()
         }
     }
 }
