@@ -65,6 +65,8 @@ class DetailsActivity : Screen() {
     private var infoOpen = false
     private val infoCastCards = mutableListOf<View>()
     private var storyScrollView: ScrollView? = null
+    private var richCast: List<CastMember> = emptyList()
+    private var castStripSlot: FrameLayout? = null
     private var selectedSeason = 1
     private var episodeRows = emptyList<View>()
     private var meta: Meta? = null
@@ -106,9 +108,11 @@ class DetailsActivity : Screen() {
                 heroArt.animate().alpha(1f).setDuration(250).start()
                 refrost()
             }
+            richCast = m.castMembers
             showHero(m)
             if (type == "series" && m.videos.isNotEmpty()) buildGuide(m.videos)
             if (type == "movie" && !similarRequested) { similarRequested = true; loadSimilar() }
+            loadRichCast()
         }
         background({
             (Stremio.savedAddons(key) ?: Stremio.addons(key)).savedMeta(type, metaId) to Stremio.savedLibrary(key)?.firstOrNull { it.optString("_id") == metaId }
@@ -181,8 +185,15 @@ class DetailsActivity : Screen() {
                     maxLines = 3; ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(dp(470), -2).apply { topMargin = dp(8) })
             }
-            buildCastChips(m)?.let { castStrip ->
-                stack.addView(castStrip, wrap().apply { topMargin = dp(10) })
+            val initialCast = richCast.ifEmpty { m.castMembers }
+            buildCastChips(initialCast)?.let { castStrip ->
+                val slot = FrameLayout(this).apply {
+                    clipChildren = false
+                    clipToPadding = false
+                    addView(castStrip)
+                }
+                castStripSlot = slot
+                stack.addView(slot, wrap().apply { topMargin = dp(10) })
             }
             addWatch(m, stack)
         }
@@ -510,7 +521,8 @@ class DetailsActivity : Screen() {
             content.addView(story, LinearLayout.LayoutParams(dp(HERO_W), dp(110)).apply { topMargin = dp(6) })
         }
 
-        if (m.castMembers.isNotEmpty()) {
+        val fullCast = richCast.ifEmpty { m.castMembers }
+        if (fullCast.isNotEmpty()) {
             content.addView(caps("Cast", TEXT_2).onArt().marginTop(14))
             val castRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -522,7 +534,7 @@ class DetailsActivity : Screen() {
             val avatarSize = dp(56)
             val ringBox = avatarSize + dp(6)
 
-            m.castMembers.forEachIndexed { index, actor ->
+            fullCast.forEachIndexed { index, actor ->
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
@@ -732,8 +744,26 @@ class DetailsActivity : Screen() {
         }.start()
     }
 
-    private fun buildCastChips(m: Meta): View? {
-        val members = m.castMembers.take(4)
+    private fun loadRichCast() {
+        background({
+            Tmdb.cast(metaId, type)
+        }) { result ->
+            val enhanced = result.getOrNull().orEmpty()
+            if (enhanced.isNotEmpty()) {
+                richCast = enhanced
+                castStripSlot?.let { slot ->
+                    slot.removeAllViews()
+                    buildCastChips(richCast)?.let { slot.addView(it) }
+                }
+                if (infoOpen) {
+                    showInfo(focusCast = currentFocus in infoCastCards)
+                }
+            }
+        }
+    }
+
+    private fun buildCastChips(allMembers: List<CastMember>): View? {
+        val members = allMembers.take(4)
         if (members.isEmpty()) return null
         castChips.clear()
         val container = LinearLayout(this).apply {
@@ -806,8 +836,9 @@ class DetailsActivity : Screen() {
             })
         }
 
-        if (m.castMembers.size > 4) {
-            val moreChip = chip("+${m.castMembers.size - 4} more").apply {
+        val totalCastCount = (richCast.ifEmpty { allMembers }).size
+        if (totalCastCount > 4) {
+            val moreChip = chip("+${totalCastCount - 4} more").apply {
                 setOnClickListener { showInfo(focusCast = true) }
             }
             castChips.add(moreChip)
