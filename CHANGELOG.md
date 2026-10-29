@@ -17,6 +17,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **Still watching?** If you do not press a remote button for 3 episodes, Alder stops before the next episode. Select **Play** or **Exit to Home**.
+- **Sleep timer.** In the player, select **Audio & subtitles**, then select **Sleep**. Choose **After this episode** or **In 60 min**.
 - **Mark episodes as watched.** Hold OK on an episode in the episode guide. Select **Mark as watched**, **Mark as unwatched**, or **Mark previous episodes watched**. Hold OK on a season button to mark all episodes of that season.
 - **New episode tags.** A tungsten tag shows on Continue Watching when a new episode is available.
 - **Protect unreleased episodes.** Alder shows the air date for future episodes and disables playback until they air.
