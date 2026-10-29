@@ -228,13 +228,21 @@ class DetailsActivity : Screen() {
     private fun addWatch(m: Meta, stack: LinearLayout) {
         val target = playTarget(m)
         val episode = target?.second
+        // Under a minute in is not started: a title opened and closed at 0:00 offers Play, not Resume.
+        val resumeAt = (item?.let { Library.resumeAt(it, target?.first ?: metaId) } ?: 0L).takeIf { it >= STARTED } ?: 0L
         val videos = m.videos
         val watched = Library.watched(item, videos)
         val airedVideos = videos.filter { it.season > 0 && isEpisodeAired(it.released) }
         val currentVideoId = item?.optJSONObject("state")?.text("video_id")
         val currentVideo = videos.firstOrNull { it.id == currentVideoId }
         val unairedNext = when {
+            // Unfinished playback always resumes
+            resumeAt > 0 -> null
+            // Unpremiered show: first target episode is unaired
+            episode != null && !isEpisodeAired(episode.released) -> episode
+            // Caught up pointer is unaired
             currentVideo != null && !isEpisodeAired(currentVideo.released) -> currentVideo
+            // All aired episodes watched: next in line is unaired
             airedVideos.isNotEmpty() && airedVideos.all { it.id in watched } ->
                 videos.firstOrNull { it.season > 0 && !isEpisodeAired(it.released) && it.id !in watched }
             else -> null
@@ -244,7 +252,8 @@ class DetailsActivity : Screen() {
             val airDate = airDateLabel(unairedNext.released)?.removePrefix("Airs ")
                 ?: episodeDate(unairedNext.released)?.replace(Regex(" \\d{4}$"), "")
                 ?: "soon"
-            val caughtUp = "Up to date  ·  S${unairedNext.season} E${unairedNext.episode} airs $airDate"
+            val prefix = if (airedVideos.isEmpty()) "Premiere" else "Up to date"
+            val caughtUp = "$prefix  ·  S${unairedNext.season} E${unairedNext.episode} airs $airDate"
             stack.addView(text(caughtUp, SMALL, bold = true).onArt().apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             }.marginTop(16))
@@ -263,9 +272,6 @@ class DetailsActivity : Screen() {
             playButton.post { if (!guideOpen && !infoOpen && !similarOpen) playButton.requestFocus() }
             return
         }
-
-        // Under a minute in is not started: a title opened and closed at 0:00 offers Play, not Resume.
-        val resumeAt = (item?.let { Library.resumeAt(it, target?.first ?: metaId) } ?: 0L).takeIf { it >= STARTED } ?: 0L
         val duration = item?.optJSONObject("state")?.optLong("duration") ?: 0L
         val remaining = if (resumeAt > 0 && duration > resumeAt) runtime("${(duration - resumeAt) / 60_000} min") + " left" else null
         val where = listOfNotNull(episode?.let { "S${it.season} E${it.episode}" }, episode?.title?.takeIf { it.isNotBlank() }, remaining).joinToString(DOT)
