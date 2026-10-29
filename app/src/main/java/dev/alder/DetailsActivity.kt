@@ -411,7 +411,8 @@ class DetailsActivity : Screen() {
     }
 
     private fun updatePreview(video: Video) {
-        Images.load(video.thumbnail, previewImage, dp(870), orElse = meta?.background)
+        val blur = Settings.blurThumbnails(this) && video.id !in Library.watched(item, meta?.videos.orEmpty())
+        Images.load(video.thumbnail, previewImage, dp(870), orElse = meta?.background, look = if (blur) Images.blurred else null)
         previewTitle.text = video.title.ifBlank { "Episode ${video.episode}" }
         previewFacts.text = listOfNotNull("S${video.season} E${video.episode}", meta?.runtime,
             episodeDate(video.released)).joinToString(DOT)
@@ -619,6 +620,7 @@ class DetailsActivity : Screen() {
             .putExtra("label", listOfNotNull(m?.name ?: name, short).joinToString("  ·  "))
             // For the sources page: the title's logo, the episode's still and "S1 E3 · OutKast".
             .putExtra("logo", m?.logo).putExtra("still", video?.thumbnail).putExtra("runtime", m?.runtime)
+            .putExtra("blurStill", Settings.blurThumbnails(this) && video != null && video.id !in Library.watched(item, m?.videos.orEmpty()))
             .putExtra("episode", video?.let { v -> listOfNotNull("S${v.season} E${v.episode}", v.title.takeIf { it.isNotBlank() }).joinToString("  ·  ") })
 
         if (pick || Settings.alwaysList(this)) {

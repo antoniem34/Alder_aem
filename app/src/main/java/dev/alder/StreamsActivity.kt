@@ -105,7 +105,9 @@ class StreamsActivity : Screen() {
         art = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
         val still = intent.getStringExtra("still")
         val backArt = intent.getStringExtra("background") ?: intent.getStringExtra("poster")
-        Images.load(still ?: backArt, art, resources.displayMetrics.widthPixels, orElse = backArt.takeIf { still != null }) {
+        val blurStill = intent.getBooleanExtra("blurStill", false)
+        Images.load(still ?: backArt, art, resources.displayMetrics.widthPixels, orElse = backArt.takeIf { still != null },
+            look = if (blurStill && still != null) Images.blurred else null) {
             art.animate().alpha(1f).setDuration(250).start()
             refrost()
         }

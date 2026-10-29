@@ -144,6 +144,15 @@ class ScreenDesignTest {
         assertEquals(true, plausibleEpisode(120_000L))
     }
 
+    @Test fun unwatchedEpisodeThumbnailsBlurWhenEnabled() {
+        val watched = setOf("tt123:1:1", "tt123:1:2")
+        val shouldBlur = { enabled: Boolean, videoId: String -> enabled && videoId !in watched }
+        assertEquals(true, shouldBlur(true, "tt123:1:3"))
+        assertEquals(false, shouldBlur(true, "tt123:1:1"))
+        assertEquals(false, shouldBlur(false, "tt123:1:3"))
+        assertEquals(false, shouldBlur(false, "tt123:1:1"))
+    }
+
     @Test fun settingsChoicesWrapAndCustomStartsAtTheEndForLeft() {
         assertEquals(0, nextSettingIndex(-1, 4, 1))
         assertEquals(3, nextSettingIndex(-1, 4, -1))
