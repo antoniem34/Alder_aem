@@ -78,6 +78,70 @@ internal fun formatTiming(delay: Long) = when {
     else -> "%+.2f s  later".format(delay / 1000f)
 }
 
+internal fun playerPauseFacts(subtitle: String, endClock: String?, isTrailer: Boolean, isLive: Boolean): String =
+    listOfNotNull(
+        subtitle.takeIf { it.isNotBlank() },
+        endClock?.takeIf { it.isNotBlank() && !isTrailer && !isLive }?.let { "Ends $it" },
+    ).joinToString(Screen.DOT)
+
+internal enum class BadgeBrand { NONE, DOLBY, DTS, DEBRID }
+
+internal data class PlayerBadge(val brand: BadgeBrand, val label: String, val code: String? = null, val accent: Boolean = false)
+
+internal fun playerBadges(
+    stream: Stream?,
+    videoHeight: Int = 0,
+    audioMime: String? = null,
+    audioLabel: String? = null,
+    audioChannels: Int = 0,
+): List<PlayerBadge> {
+    if (stream == null && videoHeight <= 0 && audioMime == null) return emptyList()
+    val out = mutableListOf<PlayerBadge>()
+    val height = videoHeight.takeIf { it > 0 } ?: stream?.height ?: 0
+    when {
+        height >= 2160 -> out += PlayerBadge(BadgeBrand.NONE, "4K", accent = true)
+        height >= 1440 -> out += PlayerBadge(BadgeBrand.NONE, "1440p")
+        height >= 1080 -> out += PlayerBadge(BadgeBrand.NONE, "1080p")
+        height >= 720 -> out += PlayerBadge(BadgeBrand.NONE, "720p")
+        height >= 480 -> out += PlayerBadge(BadgeBrand.NONE, "${height}p")
+    }
+    if (stream?.dolbyVision == true) out += PlayerBadge(BadgeBrand.DOLBY, "VISION", accent = true)
+    if (stream?.hdr == true && !stream.dolbyVision) out += PlayerBadge(BadgeBrand.NONE, "HDR", accent = true)
+
+    val words = "${stream?.filename.orEmpty()} ${stream?.title.orEmpty()} ${stream?.description.orEmpty()} ${audioLabel.orEmpty()}".lowercase()
+    val atmos = audioMime == MimeTypes.AUDIO_E_AC3_JOC || "atmos" in words
+    val trueHd = audioMime == MimeTypes.AUDIO_TRUEHD || "truehd" in words
+    val dolbyDigital = audioMime == MimeTypes.AUDIO_E_AC3 || audioMime == MimeTypes.AUDIO_AC3 ||
+        Regex("\\b(ddp?|e-?ac-?3|dolby.?digital)\\b").containsMatchIn(words)
+    val dtsX = Regex("dts[-_. ]?x\\b").containsMatchIn(words)
+    val dtsHd = audioMime == MimeTypes.AUDIO_DTS_HD || Regex("dts[-_. ]?hd").containsMatchIn(words)
+    val dts = audioMime == MimeTypes.AUDIO_DTS || Regex("\\bdts\\b").containsMatchIn(words)
+
+    when {
+        atmos -> out += PlayerBadge(BadgeBrand.DOLBY, "ATMOS", accent = true)
+        trueHd -> out += PlayerBadge(BadgeBrand.DOLBY, "TRUEHD")
+        dtsX -> out += PlayerBadge(BadgeBrand.DTS, "X", accent = true)
+        dtsHd -> out += PlayerBadge(BadgeBrand.DTS, "HD")
+        dts -> out += PlayerBadge(BadgeBrand.DTS, "")
+        dolbyDigital -> out += PlayerBadge(BadgeBrand.DOLBY, "AUDIO")
+    }
+
+    val channels = when {
+        audioChannels == 8 -> "7.1"
+        audioChannels == 6 -> "5.1"
+        audioChannels > 0 -> null
+        Regex("\\b7[ ._-]?1\\b").containsMatchIn(words) -> "7.1"
+        Regex("\\b5[ ._-]?1\\b").containsMatchIn(words) -> "5.1"
+        else -> null
+    }
+    if (channels != null && !atmos && !dtsX) out += PlayerBadge(BadgeBrand.NONE, channels)
+    if (stream?.remux == true) out += PlayerBadge(BadgeBrand.NONE, "REMUX")
+    stream?.debrid?.let { d ->
+        out += PlayerBadge(BadgeBrand.DEBRID, d.name, code = d.tag, accent = true)
+    }
+    return out
+}
+
 internal class OffsettableTextRenderer(
     private val delegate: TextRenderer
 ) : Renderer by delegate, RendererCapabilities by delegate {
@@ -127,9 +191,6 @@ class PlayerActivity : Screen() {
     private var prepared = false
     private lateinit var status: android.widget.TextView
     private lateinit var loading: FrameLayout
-    private lateinit var loadingBar: SeekBar
-    private lateinit var loadingStart: TextView
-    private lateinit var loadingLeft: TextView
     private lateinit var stallPanel: FrameLayout
     private lateinit var screen: FrameLayout
     private lateinit var pausedShade: View
@@ -332,6 +393,7 @@ class PlayerActivity : Screen() {
                 hideLoading()
                 main.removeCallbacks(startTimeout)
                 player.videoFormat?.frameRate?.let(::matchFrameRate)
+                refreshBadges()
                 // Next time: the same release for this video, and the same group (release and quality) for the next episode.
                 if (!isTrailer) {
                     val s = sources[at]
@@ -385,6 +447,7 @@ class PlayerActivity : Screen() {
 
             override fun onTracksChanged(tracks: Tracks) {
                 trackStatus.text = trackStatus(tracks)
+                refreshBadges(tracks)
                 if (selectAddonSub) tracks.groups.firstOrNull(::isAddonSub)?.let { g ->
                     selectAddonSub = false
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -516,27 +579,9 @@ class PlayerActivity : Screen() {
             addView(status, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(12) })
         }
         addView(center, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
-        loadingBar = SeekBar(this@PlayerActivity).apply { isFocusable = false }
-        loadingStart = text("", SMALL, color = TEXT_2).onArt()
-        loadingLeft = text("", SMALL, color = TEXT_2).onArt()
-        addView(loadingBar, FrameLayout.LayoutParams(-1, dp(12), Gravity.TOP).apply {
-            leftMargin = dp(PAD + 30); rightMargin = dp(PAD + 30); topMargin = dp(32)
-        })
-        addView(loadingStart, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(PAD); topMargin = dp(29)
-        })
-        addView(loadingLeft, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
-            rightMargin = dp(PAD); topMargin = dp(29)
-        })
     }
 
     private fun showLoading(message: String) {
-        val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
-        val position = player.currentPosition.coerceAtLeast(0)
-        val buffered = player.bufferedPosition.coerceAtLeast(position)
-        loadingBar.set(position, buffered, duration)
-        loadingStart.text = if (duration > 0) clock(position) else ""
-        loadingLeft.text = if (duration > 0) "−${clock((duration - position).coerceAtLeast(0))}" else ""
         status.text = if (message == "Loading" && player.bufferedPercentage in 1..99)
             "Loading · ${player.bufferedPercentage}%" else message
         loading.visibility = View.VISIBLE
@@ -576,6 +621,7 @@ class PlayerActivity : Screen() {
         mkvChapters = emptyList()
         setChapterSnapMode(false)
         updateMarkers()
+        refreshBadges()
         val sourceUrl = s.url
         val sourceHeaders = s.headers
         background({
@@ -1088,6 +1134,7 @@ class PlayerActivity : Screen() {
     private lateinit var pauseTitle: TextView
     private lateinit var pauseInfo: LinearLayout
     private lateinit var pauseFacts: TextView
+    private lateinit var pauseBadges: LinearLayout
     private lateinit var subtitle: TextView // the year or S5 E2
     private val buttonLabels = mutableMapOf<View, TextView>()
     private var shown = false
@@ -1096,6 +1143,7 @@ class PlayerActivity : Screen() {
     private var chapterSnapMode = false
     private var markers = emptyList<Marker>()
     private var mkvChapters = emptyList<MkvChapter>()
+    private var shownBadges = emptyList<PlayerBadge>()
     private val hideTask = Runnable { hideControls() }
     private val progressTask = Runnable { updateProgress() }
     private val seekTask = Runnable { if (scrubTo >= 0) { player.seekTo(scrubTo); scrubTo = -1 } }
@@ -1131,13 +1179,25 @@ class PlayerActivity : Screen() {
         }
         subtitle = text(if (isTrailer) "Trailer" else intent.getStringExtra("episode")?.substringBefore("  ·  ").orEmpty(), SMALL, color = TEXT_2).onArt()
         pauseFacts = text("", SMALL, color = TEXT_2).onArt()
+        pauseBadges = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        val pauseMetaRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(pauseFacts, wrap().apply { marginEnd = dp(10) })
+            addView(pauseBadges, wrap())
+        }
         pauseInfo = column(Gravity.START).apply {
             addView(caps(if (isTrailer) "Trailer" else "Paused", TUNGSTEN).onArt())
-            addView(pauseTitle, LinearLayout.LayoutParams(dp(480), -2).apply { topMargin = dp(6) })
-            addView(pauseFacts, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+            addView(pauseTitle, LinearLayout.LayoutParams(dp(640), -2).apply { topMargin = dp(6) })
+            addView(pauseMetaRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
+        refreshBadges()
 
-        trackStatus = text("", SMALL, color = TEXT_2).onArt().apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        trackStatus = text("", SMALL, color = TEXT_2).onArt().apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = dp(260)
+            visibility = if (isTrailer) View.GONE else View.VISIBLE
+        }
         chapterPill = text("", SMALL, color = TEXT_2).onArt().apply {
             setPadding(dp(10), dp(3), dp(10), dp(3))
             background = pillBackground(false)
@@ -1246,8 +1306,8 @@ class PlayerActivity : Screen() {
             clipChildren = false // a focused button's label is wider than its cell
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             if (!isTrailer) {
-                addView(buttonCell(audioButton))
                 addView(buttonCell(streamButton))
+                addView(buttonCell(audioButton))
                 addView(View(context).apply { setBackgroundColor(GLASS_EDGE) },
                     LinearLayout.LayoutParams(dp(1), dp(22)).apply { topMargin = dp(14); marginEnd = dp(10) })
             }
@@ -1259,7 +1319,7 @@ class PlayerActivity : Screen() {
                 addView(buttonCell(infoButton))
             }
         }
-        for (button in listOf(audioButton, streamButton, playPause, nextButton, infoButton))
+        for (button in listOf(streamButton, audioButton, playPause, nextButton, infoButton))
             button.nextFocusUpId = bar.id
         playPause.id = View.generateViewId()
         bar.nextFocusDownId = playPause.id
@@ -1287,7 +1347,7 @@ class PlayerActivity : Screen() {
             }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
                 topMargin = dp(34); rightMargin = dp(PAD)
             })
-            addView(pauseInfo, FrameLayout.LayoutParams(dp(520), -2, Gravity.BOTTOM or Gravity.START).apply {
+            addView(pauseInfo, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
                 leftMargin = dp(PAD); bottomMargin = dp(168)
             })
             addView(chapterPill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
@@ -1302,12 +1362,131 @@ class PlayerActivity : Screen() {
             addView(length, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                 rightMargin = dp(PAD); bottomMargin = dp(91)
             })
+            addView(trackStatus, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(PAD); bottomMargin = dp(38)
+            })
             addView(buttons, FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM).apply {
                 bottomMargin = dp(11)
             })
             addView(column(Gravity.END, keyHint("OK", "Play / pause"), keyHint("◀ ▶", "Seek on the bar")), FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                 rightMargin = dp(PAD); bottomMargin = dp(35)
             })
+        }
+    }
+
+    private fun refreshBadges(tracks: Tracks = player.currentTracks) {
+        if (!::pauseBadges.isInitialized) return
+        if (isTrailer) {
+            pauseBadges.visibility = View.GONE
+            return
+        }
+        val audio = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }?.getTrackFormat(0)
+        val videoHeight = player.videoFormat?.height?.takeIf { it > 0 }
+            ?: tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.getTrackFormat(0)?.height ?: 0
+        val badges = playerBadges(
+            stream = sources.getOrNull(at),
+            videoHeight = videoHeight,
+            audioMime = audio?.sampleMimeType,
+            audioLabel = audio?.label,
+            audioChannels = audio?.channelCount?.takeIf { it > 0 } ?: 0,
+        )
+        if (badges == shownBadges && pauseBadges.childCount > 0) return
+        shownBadges = badges
+        pauseBadges.removeAllViews()
+        pauseBadges.visibility = if (badges.isEmpty()) View.GONE else View.VISIBLE
+        badges.forEachIndexed { index, badge ->
+            pauseBadges.addView(badgeView(badge), LinearLayout.LayoutParams(-2, dp(20)).apply {
+                if (index > 0) marginStart = dp(6)
+            })
+        }
+    }
+
+    /** Monochrome House Lights brand badge: custom vector marks for Dolby / DTS / Debrid, or crisp typographic lockups. */
+    private fun badgeView(b: PlayerBadge): View {
+        val rim = if (b.accent) 0x80F3D9B1.toInt() else GLASS_EDGE
+        val frame = GradientDrawable().apply {
+            setColor(0x3328221C)
+            cornerRadius = dp(4).toFloat()
+            setStroke(dp(1), rim)
+        }
+        return when (b.brand) {
+            BadgeBrand.DOLBY -> LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                background = frame
+                setPadding(dp(6), 0, dp(6), 0)
+                addView(dolbyIcon(if (b.accent) TUNGSTEN else TEXT), LinearLayout.LayoutParams(dp(13), dp(9)).apply { marginEnd = dp(5) })
+                addView(text("DOLBY ${b.label}", 9.5f, bold = true, color = if (b.accent) TUNGSTEN else TEXT).apply {
+                    includeFontPadding = false
+                    letterSpacing = 0.06f
+                }, wrap())
+            }
+            BadgeBrand.DTS -> LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                background = frame
+                setPadding(dp(6), 0, dp(6), 0)
+                addView(dtsIcon(if (b.accent) TUNGSTEN else TEXT), LinearLayout.LayoutParams(dp(9), dp(9)).apply { marginEnd = dp(4) })
+                val suffix = when (b.label) { "HD" -> "-HD"; "X" -> ":X"; else -> "" }
+                addView(text("DTS$suffix", 9.5f, bold = true, color = if (b.accent) TUNGSTEN else TEXT).apply {
+                    includeFontPadding = false
+                    letterSpacing = 0.06f
+                }, wrap())
+            }
+            BadgeBrand.DEBRID -> LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                background = frame
+                setPadding(dp(2), 0, dp(6), 0)
+                if (!b.code.isNullOrBlank()) {
+                    addView(text(b.code, 8.5f, bold = true, color = BASE).apply {
+                        includeFontPadding = false
+                        letterSpacing = 0.03f
+                        background = rounded(TUNGSTEN, 3)
+                        setPadding(dp(4), dp(1), dp(4), dp(1))
+                    }, wrap().apply { marginEnd = dp(5) })
+                }
+                addView(text(b.label, 9.5f, bold = true, color = TEXT).apply {
+                    includeFontPadding = false
+                    letterSpacing = 0.03f
+                }, wrap())
+            }
+            BadgeBrand.NONE -> text(b.label, 9.5f, bold = true, color = if (b.accent) TUNGSTEN else TEXT_2).apply {
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                letterSpacing = 0.05f
+                background = frame
+                setPadding(dp(6), 0, dp(6), 0)
+            }
+        }
+    }
+
+    /** The Dolby double-D mark (two opposing D shapes), drawn in [color]. */
+    private fun dolbyIcon(color: Int) = object : View(this) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        private val path = android.graphics.Path()
+        private val rect = android.graphics.RectF()
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val r = h / 2f
+            path.reset()
+            rect.set(0f, 0f, w * 0.44f, h)
+            path.addRoundRect(rect, floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f), android.graphics.Path.Direction.CW)
+            rect.set(w * 0.56f, 0f, w, h)
+            path.addRoundRect(rect, floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r), android.graphics.Path.Direction.CW)
+            canvas.drawPath(path, paint)
+        }
+    }
+
+    /** A stylized three-bar DTS acoustic slash mark, drawn in [color]. */
+    private fun dtsIcon(color: Int) = object : View(this) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val barW = w * 0.22f
+            val r = barW / 2f
+            canvas.drawRoundRect(0f, h * 0.30f, barW, h * 0.70f, r, r, paint)
+            canvas.drawRoundRect(w * 0.39f, h * 0.14f, w * 0.39f + barW, h * 0.86f, r, r, paint)
+            canvas.drawRoundRect(w - barW, 0f, w, h, r, r, paint)
         }
     }
 
@@ -1424,11 +1603,9 @@ class PlayerActivity : Screen() {
             optionsLeft.text = if (live || duration <= 0) "" else "−${clock((duration - position).coerceAtLeast(0))}"
         }
         val remaining = (duration - position).coerceAtLeast(0)
-        val end = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + remaining))
-        pauseFacts.text = listOfNotNull(subtitle.text.toString().takeIf { it.isNotBlank() },
-            if (live || duration <= 0) null else runtime("${(remaining / 60_000).coerceAtLeast(1)} min") + " left",
-            if (isTrailer || live || duration <= 0) null else "Ends $end",
-            trackStatus.text.toString().takeIf { it.isNotBlank() && !isTrailer }).joinToString(DOT)
+        val end = if (duration > 0) SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + remaining)) else null
+        pauseFacts.text = playerPauseFacts(subtitle.text.toString(), end, isTrailer, live)
+        pauseFacts.visibility = if (pauseFacts.text.isEmpty()) View.GONE else View.VISIBLE
         main.postDelayed(progressTask, 500)
     }
 
