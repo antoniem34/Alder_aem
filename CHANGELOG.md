@@ -17,7 +17,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
-- **Actors and cast.** See lead actors on the details screen. Select **ⓘ** to see the full story and all cast members with their portraits. Select an actor to show other titles with that actor.
+- **Directors and cast.** See directors and lead actors on the title screen. Select a person to see their other works. A label shows the title and year of the focused poster. Select **ⓘ** to see the full story and all cast members with portraits.
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
 - **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
 - **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.

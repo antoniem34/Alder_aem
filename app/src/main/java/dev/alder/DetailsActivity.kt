@@ -185,7 +185,10 @@ class DetailsActivity : Screen() {
                     maxLines = 3; ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(dp(470), -2).apply { topMargin = dp(8) })
             }
-            val initialCast = richCast.ifEmpty { m.castMembers }
+            val initialCast = richCast.ifEmpty {
+                val dirMembers = m.directors.map { CastMember(it, character = "Director", role = "director") }
+                dirMembers + m.castMembers
+            }
             buildCastChips(initialCast)?.let { castStrip ->
                 val slot = FrameLayout(this).apply {
                     clipChildren = false
@@ -676,7 +679,19 @@ class DetailsActivity : Screen() {
                 intArrayOf(0xF70E0C0A.toInt(), 0xA60E0C0A.toInt(), 0x000E0C0A))
         }, FrameLayout.LayoutParams(-1, dp(280), Gravity.BOTTOM))
         val content = column(Gravity.START)
-        content.addView(caps(heading).onArt(), LinearLayout.LayoutParams(-1, -2).apply {
+        val captionPill = caption("").apply {
+            visibility = View.INVISIBLE
+            maxWidth = dp(360)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(caps(heading).onArt())
+            addView(captionPill, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(14) })
+        }
+        content.addView(headerRow, LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(12)
         })
         val row = LinearLayout(this).apply { clipChildren = false; clipToPadding = false }
@@ -696,7 +711,13 @@ class DetailsActivity : Screen() {
                     setPadding(dp(8), 0, dp(8), dp(8)); visibility = View.GONE
                 }
                 addView(fallback, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-                cardFocus(6)
+                cardFocus(6) { has ->
+                    if (has) {
+                        val yearStr = title.year?.take(4)?.let { "  ·  $it" } ?: ""
+                        captionPill.text = "${title.name}$yearStr"
+                        captionPill.visibility = View.VISIBLE
+                    }
+                }
                 setOnClickListener {
                     startActivity(Intent(this@DetailsActivity, DetailsActivity::class.java)
                         .putExtra("type", title.type).putExtra("id", title.id).putExtra("name", title.name)
@@ -820,7 +841,8 @@ class DetailsActivity : Screen() {
                 }
                 addView(avatarFrame, LinearLayout.LayoutParams(avatarSize, avatarSize).apply { marginEnd = dp(8) })
 
-                val nameView = text(actor.name, SMALL, color = TEXT_2)
+                val displayName = if (actor.isDirector) "Dir. ${actor.name}" else actor.name
+                val nameView = text(displayName, SMALL, color = TEXT_2)
                 addView(nameView, wrap())
 
                 setOnFocusChangeListener { v, has ->
@@ -857,16 +879,49 @@ class DetailsActivity : Screen() {
     private fun showFilmography(actor: CastMember, originView: View) {
         lastFocusedActor = originView
         background({
-            Stremio.addons(key).firstNotNullOfOrNull { addon ->
-                runCatching { addon.search(actor.name) }.getOrNull()?.takeIf { it.isNotEmpty() }
-            }.orEmpty()
+            val creditedTitles = runCatching {
+                Tmdb.personCredits(actor.tmdbId, actor.name, actor.isDirector)
+            }.getOrDefault(emptySet())
+
+            val allMetas = Stremio.addons(key).flatMap { addon ->
+                runCatching { addon.search(actor.name) }.getOrNull().orEmpty()
+            }.distinctBy { it.id }.filter { it.id != metaId }
+
+            val actorLower = actor.name.lowercase().trim()
+
+            allMetas.sortedWith(compareByDescending<Meta> { meta ->
+                val metaTitleLower = meta.name.lowercase().trim()
+                var score = 0
+                if (metaTitleLower in creditedTitles || creditedTitles.any { it.contains(metaTitleLower) || metaTitleLower.contains(it) }) {
+                    score += 100
+                }
+                if (actor.isDirector) {
+                    if (meta.directors.any { it.lowercase().contains(actorLower) || actorLower.contains(it.lowercase()) }) {
+                        score += 80
+                    }
+                } else {
+                    if (meta.cast.any { it.lowercase().contains(actorLower) || actorLower.contains(it.lowercase()) }) {
+                        score += 80
+                    }
+                }
+                if (score == 0 && metaTitleLower.contains(actorLower)) {
+                    score -= 50
+                }
+                score
+            }.thenByDescending { it.year ?: "" }).filter { meta ->
+                val metaTitleLower = meta.name.lowercase().trim()
+                val isCredited = metaTitleLower in creditedTitles || creditedTitles.any { it.contains(metaTitleLower) || metaTitleLower.contains(it) }
+                    || (if (actor.isDirector) meta.directors.any { it.lowercase().contains(actorLower) } else meta.cast.any { it.lowercase().contains(actorLower) })
+                isCredited || allMetas.size <= 4 || !metaTitleLower.contains(actorLower)
+            }.take(16)
         }) { result ->
-            val titles = result.getOrNull()?.filter { it.id != metaId }?.distinctBy { it.id }?.take(16).orEmpty()
+            val titles = result.getOrNull().orEmpty()
             if (titles.isEmpty()) {
                 if (!infoOpen) showInfo(focusCast = true)
                 return@background
             }
-            buildFilmographyOverlay(actor.name, titles)
+            val heading = if (actor.isDirector) "Directed by ${actor.name}" else actor.name
+            buildFilmographyOverlay(heading, titles)
             openFilmography()
         }
     }
@@ -879,7 +934,19 @@ class DetailsActivity : Screen() {
                 intArrayOf(0xF70E0C0A.toInt(), 0xA60E0C0A.toInt(), 0x000E0C0A))
         }, FrameLayout.LayoutParams(-1, dp(280), Gravity.BOTTOM))
         val content = column(Gravity.START)
-        content.addView(caps(heading).onArt(), LinearLayout.LayoutParams(-1, -2).apply {
+        val captionPill = caption("").apply {
+            visibility = View.INVISIBLE
+            maxWidth = dp(360)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(caps(heading).onArt())
+            addView(captionPill, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(14) })
+        }
+        content.addView(headerRow, LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(12)
         })
         val row = LinearLayout(this).apply { clipChildren = false; clipToPadding = false }
@@ -899,7 +966,13 @@ class DetailsActivity : Screen() {
                     setPadding(dp(8), 0, dp(8), dp(8)); visibility = View.GONE
                 }
                 addView(fallback, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-                cardFocus(6)
+                cardFocus(6) { has ->
+                    if (has) {
+                        val yearStr = title.year?.take(4)?.let { "  ·  $it" } ?: ""
+                        captionPill.text = "${title.name}$yearStr"
+                        captionPill.visibility = View.VISIBLE
+                    }
+                }
                 setOnClickListener {
                     startActivity(Intent(this@DetailsActivity, DetailsActivity::class.java)
                         .putExtra("type", title.type).putExtra("id", title.id).putExtra("name", title.name)

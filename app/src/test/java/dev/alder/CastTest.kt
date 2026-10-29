@@ -1,7 +1,9 @@
 package dev.alder
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CastTest {
@@ -13,6 +15,17 @@ class CastTest {
         assertEquals("J. Robert Oppenheimer", member?.character)
         assertEquals("https://img.org/cillian.jpg", member?.photo)
         assertEquals("CM", member?.initials)
+        assertFalse(member?.isDirector == true)
+    }
+
+    @Test
+    fun parseCastMemberDirector() {
+        val dir = CastMember("Christopher Nolan", character = "Director", role = "director", tmdbId = 525)
+        assertEquals("Christopher Nolan", dir.name)
+        assertEquals("Director", dir.character)
+        assertTrue(dir.isDirector)
+        assertEquals("CN", dir.initials)
+        assertEquals(525, dir.tmdbId)
     }
 
     @Test
@@ -35,9 +48,11 @@ class CastTest {
         assertEquals("AC", CastMember("A B C").initials)
         assertEquals("", CastMember("").initials)
     }
+
     @Test
     fun tmdbInvalidId() {
         assertEquals(emptyList<CastMember>(), Tmdb.cast("invalid_id", "movie"))
         assertEquals(emptyList<CastMember>(), Tmdb.cast("", "series"))
+        assertEquals(emptySet<String>(), Tmdb.personCredits(null, "", false))
     }
 }

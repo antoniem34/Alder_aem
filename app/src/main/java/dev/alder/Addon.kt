@@ -224,6 +224,9 @@ class Meta(json: JSONObject) {
     val runtime = json.text("runtime")?.let(::runtime)
     val rating = json.text("imdbRating")
     val genres = json.optJSONArray("genres").strings().take(3)
+    val directors: List<String> = (json.optJSONArray("director") ?: json.optJSONArray("directors"))?.strings()
+        ?: json.text("director")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+        ?: emptyList()
     val castMembers: List<CastMember> = (json.optJSONArray("cast") ?: json.optJSONArray("actors"))?.items()?.mapNotNull { item ->
         when (item) {
             is String -> item.trim().takeIf { it.isNotBlank() }?.let { CastMember(it) }
@@ -262,12 +265,19 @@ class Subtitle(val url: String, val lang: String, val addon: String) {
     }
 }
 
-internal fun parseCastMember(name: String?, character: String? = null, photo: String? = null): CastMember? {
+internal fun parseCastMember(name: String?, character: String? = null, photo: String? = null, role: String = "actor", tmdbId: Int? = null): CastMember? {
     val cleanName = name?.trim()?.takeIf { it.isNotBlank() } ?: return null
     return CastMember(cleanName, character?.trim()?.takeIf { it.isNotBlank() }, photo?.trim()?.takeIf { it.isNotBlank() })
 }
 
-class CastMember(val name: String, val character: String? = null, val photo: String? = null) {
+class CastMember(
+    val name: String,
+    val character: String? = null,
+    val photo: String? = null,
+    val role: String = "actor",
+    val tmdbId: Int? = null,
+) {
+    val isDirector: Boolean get() = role == "director"
     val initials: String get() {
         val parts = name.trim().split(Regex("""\s+""")).filter {
             it.isNotBlank() && it.lowercase().trimEnd('.') !in setOf("jr", "sr", "ii", "iii", "iv")
