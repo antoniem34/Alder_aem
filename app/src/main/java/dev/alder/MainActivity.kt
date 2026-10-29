@@ -509,6 +509,7 @@ class MainActivity : Screen() {
     private var lastShowMovies = true
     private var lastShowShows = true
     private var lastShowLive = true
+    private var lastHiddenRows: Set<String> = emptySet()
 
     // Back from a title or the player: Continue Watching may have moved on, so this asks Stremio, not the disk. Only
     // the library's rows are redrawn, so the remote stays where it was on the rest of the page.
@@ -518,6 +519,9 @@ class MainActivity : Screen() {
         val showMovies = Settings.showMovies(this)
         val showShows = Settings.showShows(this)
         val showLive = Settings.showLive(this)
+        val hiddenRows = Settings.hiddenRows(this)
+        val hiddenRowsChanged = hiddenRows != lastHiddenRows
+        lastHiddenRows = hiddenRows
         lastShowMovies = showMovies
         lastShowShows = showShows
         lastShowLive = showLive
@@ -526,9 +530,9 @@ class MainActivity : Screen() {
             showPage(Page.HOME)
             return
         }
-        if (page == Page.HOME && featured != lastFeaturedHome) {
+        if (hiddenRowsChanged || (page == Page.HOME && featured != lastFeaturedHome)) {
             lastFeaturedHome = featured
-            showPage(Page.HOME)
+            showPage(page)
         } else {
             refreshLibrary?.invoke()
             refreshAddons?.invoke()
@@ -1202,6 +1206,7 @@ class MainActivity : Screen() {
         cardCaption.visibility = View.GONE
         nextRowHint.visibility = View.GONE
         moreHint.alpha = 0f
+        lastHiddenRows = Settings.hiddenRows(this)
         if (p == Page.HOME) { lastFeaturedHome = Settings.featuredHome(this); cinema = emptyList() } // other pages keep Home's, so the screensaver works there too
         focusedSomething = false
         // The last page's title goes with it; an empty page (no library yet, no catalogs) shows none.
@@ -1297,7 +1302,8 @@ class MainActivity : Screen() {
                     .apply { setPadding(dp(PAD), 0, dp(PAD), 0) })
             }
             val genres = catalogGenres(catalogs.flatMap { it.genres })
-            val sections = sections(p, shelves, featuredHome)
+            val hiddenRows = Settings.hiddenRows(this@MainActivity)
+            val sections = sections(p, shelves, featuredHome).filterNot { it.first in hiddenRows }
             val genreNames = (if (p.isCatalog) sections.take(nextCatalogSection(sections.size, 0)).map { it.first }.filter { name -> genres.any { it.equals(name, true) } }
                 else emptyList()).toMutableList()
             val genreResults = mutableMapOf<String, Boolean>()
@@ -1681,6 +1687,19 @@ class MainActivity : Screen() {
         }
     }
 
+    /** Hold OK on a catalog card: choose a source yourself, or take the whole row off the page. */
+    private fun rowMenu(row: Row, item: Item) {
+        val options = if (row.title.isNotEmpty()) listOf("Choose a source", "Hide row \"${row.title}\"")
+                      else listOf("Choose a source")
+        choose(item.name, options) { selected ->
+            if (selected == 0) play(item, pick = true)
+            else {
+                Settings.hideRow(this, row.title)
+                showPage(page)
+            }
+        }
+    }
+
     // ---------- rows ----------
 
     /** The rest of a list already in hand, a page at a time: a row of hundreds of cards would be slow to build. */
@@ -1979,7 +1998,7 @@ class MainActivity : Screen() {
                 setOnClickListener { if (item.live) play(item) else openDetails(item) }
                 if (grid) setOnLongClickListener { listMenu(item); true }
                 else if (item.resume) setOnLongClickListener { continueMenu(item); true }
-                else if (item.live) setOnLongClickListener { play(item, pick = true); true }
+                else setOnLongClickListener { rowMenu(this@Row, item); true }
             }
 
             private var showing: Boolean? = null

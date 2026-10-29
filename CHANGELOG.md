@@ -20,6 +20,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
 - **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
 - **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.
+- **Hide rows.** Hold OK on a title in a row, then select **Hide row**. To put it back, select **Settings → Profile → Hidden rows**.
 - **Live TV and sport.** If your add-ons have TV channels, sport or events, select **Live** at the top. Select a channel to play it. To choose a source, hold OK.
 - **30 GB file limit.** Select **30 GB** in **Settings → Largest file**.
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.

@@ -42,6 +42,17 @@ object Settings {
         .getOrDefault(org.json.JSONObject())
     fun setHidden(c: Context, all: org.json.JSONObject) = prefs(c).edit().putString(profileKey(c, "hidden"), all.toString()).apply()
     fun blurThumbnails(c: Context) = prefs(c).getBoolean(profileKey(c, "blurThumbnails"), prefs(c).getBoolean("blurThumbnails", false))
+    fun hiddenRows(c: Context): Set<String> = prefs(c).getStringSet(profileKey(c, "hiddenRows"), emptySet()) ?: emptySet()
+    fun hideRow(c: Context, rowTitle: String) {
+        val current = hiddenRows(c).toMutableSet()
+        current.add(rowTitle)
+        prefs(c).edit().putStringSet(profileKey(c, "hiddenRows"), current).apply()
+    }
+    fun unhideRow(c: Context, rowTitle: String) {
+        val current = hiddenRows(c).toMutableSet()
+        current.remove(rowTitle)
+        prefs(c).edit().putStringSet(profileKey(c, "hiddenRows"), current).apply()
+    }
     fun startTab(c: Context) = prefs(c).getString(profileKey(c, "startTab"), "home").orEmpty()
     fun showMovies(c: Context) = prefs(c).getBoolean(profileKey(c, "showMovies"), true)
     fun showShows(c: Context) = prefs(c).getBoolean(profileKey(c, "showShows"), true)
@@ -49,7 +60,7 @@ object Settings {
     fun featuredHome(c: Context) = prefs(c).getBoolean(profileKey(c, "featuredHome"), false)
     /** A removed profile's taste goes with it, so a new profile in its place starts with none. */
     fun forget(c: Context, profileId: String) = prefs(c).edit().apply {
-        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "startTab", "showMovies", "showShows", "showLive", "featuredHome").forEach { remove("$it@$profileId") }
+        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showLive", "featuredHome").forEach { remove("$it@$profileId") }
         prefs(c).all.keys.filter { it.startsWith("title:") && it.endsWith("@$profileId") }.forEach(::remove)
     }.apply()
 
@@ -430,6 +441,12 @@ class SettingsActivity : Screen() {
                     unhideMenu(::count)
                 }
                 count()
+                var hiddenRowsValue: TextView? = null
+                fun countRows() { hiddenRowsValue?.text = "${Settings.hiddenRows(this).size}  ›" }
+                hiddenRowsValue = actionRow("Hidden rows", "", "Put back a catalog row you hid.") {
+                    unhideRowsMenu(::countRows)
+                }
+                countRows()
                 choiceRow(Choice("startTab", "Default tab", "Which tab opens when starting the app.",
                     listOf("home" to "Home", "movies" to "Movies", "shows" to "Shows", "library" to "My List"), perProfile = true))
                 choiceRow(Choice("showMovies", "Movies tab", "Show the Movies tab in the top navigation bar.",
@@ -531,6 +548,16 @@ class SettingsActivity : Screen() {
                     done()
                 }) { choose("Couldn't put it back", listOf("OK"), "Check the connection and try again.") {} }
             }
+        }
+    }
+
+    /** The catalog rows hidden from home, movies or shows; OK on one puts it back. */
+    private fun unhideRowsMenu(done: () -> Unit) {
+        val all = Settings.hiddenRows(this).toList().sorted()
+        if (all.isEmpty()) return choose("No hidden rows", listOf("OK"), "Catalog rows you hide appear here.") {}
+        choose("Hidden rows", all, "Select a row to put it back.") { i ->
+            Settings.unhideRow(this, all[i])
+            done()
         }
     }
 

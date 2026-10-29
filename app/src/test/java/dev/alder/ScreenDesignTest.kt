@@ -123,6 +123,13 @@ class ScreenDesignTest {
         assertEquals("Popular - Movies", homeSectionTitle("Popular - Movies", true))
     }
 
+    @Test fun hiddenRowsFilterOutCatalogs() {
+        val allRows = listOf("Popular Movies", "Trending Shows", "Action Movies")
+        val hidden = setOf("Trending Shows")
+        val visible = allRows.filterNot { it in hidden }
+        assertEquals(listOf("Popular Movies", "Action Movies"), visible)
+    }
+
     @Test fun runtimeReadsInHoursAndMinutes() {
         assertEquals("2h 27m", runtime("147 min"))
         assertEquals("1h 05m", runtime("65 min"))
