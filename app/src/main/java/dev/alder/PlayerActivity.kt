@@ -1116,16 +1116,7 @@ class PlayerActivity : Screen() {
         chapterPill.background = pillBackground(enabled)
         chapterPill.setTextColor(if (enabled) Screen.TUNGSTEN else Screen.TEXT_2)
         bar.invalidate()
-        if (enabled) {
-            val current = if (scrubTo >= 0) scrubTo else player.currentPosition
-            val marker = TimelineMarkers.findCurrent(markers, current)
-            if (marker != null) {
-                scrubTo = marker.timeMs
-                updateProgress()
-                main.removeCallbacks(seekTask)
-                main.postDelayed(seekTask, SEEK_SETTLE)
-            }
-        }
+        if (shown) updateProgress()
     }
 
     private fun buildControls(): FrameLayout {
@@ -1213,7 +1204,7 @@ class PlayerActivity : Screen() {
                         KeyEvent.KEYCODE_DPAD_LEFT -> -1
                         KeyEvent.KEYCODE_DPAD_RIGHT -> 1
                         KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (event.action == KeyEvent.ACTION_DOWN && markers.isNotEmpty()) {
+                            if (event.action == KeyEvent.ACTION_DOWN && markers.size > 1) {
                                 setChapterSnapMode(true)
                                 return@setOnKeyListener true
                             }
@@ -1297,7 +1288,7 @@ class PlayerActivity : Screen() {
                 topMargin = dp(34); rightMargin = dp(PAD)
             })
             addView(pauseInfo, FrameLayout.LayoutParams(dp(520), -2, Gravity.BOTTOM or Gravity.START).apply {
-                leftMargin = dp(PAD); bottomMargin = dp(148)
+                leftMargin = dp(PAD); bottomMargin = dp(168)
             })
             addView(chapterPill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
                 leftMargin = dp(PAD); bottomMargin = dp(137)
@@ -1407,9 +1398,13 @@ class PlayerActivity : Screen() {
             bar.set(position, player.bufferedPosition, if (live) 0L else duration)
             elapsed.text = if (live) "Live" else clock(position)
             length.text = if (live || duration <= 0) "" else "−${clock((duration - position).coerceAtLeast(0))}"
-            val active = TimelineMarkers.findCurrent(markers, position)
+            val active = if (markers.size > 1) TimelineMarkers.findCurrent(markers, position) else null
             if ((bar.isFocused || scrubTo >= 0 || chapterSnapMode) && active != null && !live) {
-                chapterPill.text = active.title
+                chapterPill.text = when {
+                    chapterSnapMode -> "‹  ${active.title}  ›"
+                    bar.isFocused && scrubTo < 0 -> "${active.title}  ·  ▲ Chapters"
+                    else -> active.title
+                }
                 chapterPill.visibility = View.VISIBLE
                 val knob = dp(if (bar.isFocused) 9 else 6).toFloat()
                 val barWidth = bar.width.takeIf { it > 0 } ?: (controls.width - 2 * dp(PAD))
@@ -1531,51 +1526,43 @@ class PlayerActivity : Screen() {
         }
         val textTrackSelected = C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes && chosen != 0
         if (textTrackSelected) {
-            fun headingFor(delay: Long) = "SUBTITLE TIMING · ${if (delay == 0L) "ON TIME" else "%+.2f S".format(delay / 1000f)}"
+            fun headingFor(delay: Long) = "SUBTITLE TIMING · ${formatTiming(delay).uppercase()}"
             val title = caps(headingFor(subDelay), TUNGSTEN)
-            list.addView(title, wrap().apply { topMargin = dp(18); bottomMargin = dp(5) })
+            list.addView(title, wrap().apply { topMargin = dp(18); bottomMargin = dp(6) })
 
-            val words = text("", BODY, color = TEXT_2)
-            val dot = View(this).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(TUNGSTEN) }
-                visibility = if (subDelay != 0L) View.VISIBLE else View.INVISIBLE
+            var resetLabel: TextView? = null
+            fun updateTimingHeader() {
+                title.text = headingFor(subDelay)
+                resetLabel?.setTextColor(if (subDelay != 0L) TUNGSTEN else TEXT_3)
             }
-            val hint = text("Left / Right: 0.25s  ·  OK: reset", SMALL, color = TEXT_3)
+            fun adjust(delta: Long) {
+                setSubtitleDelay((subDelay + delta).coerceIn(-10_000L, 10_000L))
+                updateTimingHeader()
+            }
+
+            fun timingPill(label: String, isReset: Boolean = false, onClick: () -> Unit) = text(label, SMALL, bold = true,
+                color = if (isReset && subDelay == 0L) TEXT_3 else TEXT_2).apply {
+                if (isReset) resetLabel = this
+                gravity = Gravity.CENTER
+                maxLines = 1
+                background = glass(8)
+                rowFocus(8, rest = { glass(8) }) { has ->
+                    setTextColor(when {
+                        has -> TEXT
+                        isReset && subDelay != 0L -> TUNGSTEN
+                        isReset -> TEXT_3
+                        else -> TEXT_2
+                    })
+                }
+                setOnClickListener { onClick() }
+            }
+
             val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(9), 0, dp(9), 0)
-                addView(dot, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(8) })
-                addView(words)
-                addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-                addView(hint)
-
-                fun draw(has: Boolean) {
-                    words.setTextColor(if (has || subDelay != 0L) TEXT else TEXT_2)
-                    words.text = if (has) "‹  ${formatTiming(subDelay)}  ›" else formatTiming(subDelay)
-                    title.text = headingFor(subDelay).uppercase()
-                    dot.visibility = if (subDelay != 0L) View.VISIBLE else View.INVISIBLE
-                }
-                draw(false)
-                rowFocus(8) { has -> draw(has) }
-
-                fun adjust(delta: Long) {
-                    val next = (subDelay + delta).coerceIn(-10_000L, 10_000L)
-                    setSubtitleDelay(next)
-                    draw(true)
-                }
-
-                setOnKeyListener { _, keyCode, event ->
-                    if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                    when (keyCode) {
-                        KeyEvent.KEYCODE_DPAD_LEFT -> { adjust(-250L); true }
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> { adjust(+250L); true }
-                        else -> false
-                    }
-                }
-                setOnClickListener {
-                    if (subDelay != 0L) setSubtitleDelay(0L)
-                    draw(true)
-                }
+                addView(timingPill("− 0.25s") { adjust(-250L) }, LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(6) })
+                addView(timingPill("Reset", isReset = true) { setSubtitleDelay(0L); updateTimingHeader() }, LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(6) })
+                addView(timingPill("+ 0.25s") { adjust(+250L) }, LinearLayout.LayoutParams(0, dp(32), 1f))
             }
             list.addView(row, LinearLayout.LayoutParams(-1, dp(32)))
         }
@@ -1819,14 +1806,18 @@ private class SeekBar(context: Context) : View(context) {
         stretch(x(position), Screen.TUNGSTEN)
         paint.clearShadowLayer()
 
-        // 2 dp gap/tick cutouts for markers
-        if (duration > 0) {
-            val gapHalf = 1f * d
-            paint.color = 0xFF0E0C0A.toInt()
+        // Marker ticks along the bar
+        if (duration > 0 && markers.size > 1) {
+            val gapHalf = 1.5f * d
+            val tickHalf = 0.8f * d
+            val tickExtra = if (isFocused) 2.5f * d else 1f * d
             for (m in markers) {
                 if (m.timeMs > 0 && m.timeMs < duration) {
                     val mx = x(m.timeMs)
+                    paint.color = 0xFF0E0C0A.toInt()
                     canvas.drawRect(mx - gapHalf, y - line / 2 - 1f, mx + gapHalf, y + line / 2 + 1f, paint)
+                    paint.color = if (m.type != MarkerType.CHAPTER) Screen.TUNGSTEN else 0xCCF3EEE6.toInt()
+                    canvas.drawRect(mx - tickHalf, y - line / 2 - tickExtra, mx + tickHalf, y + line / 2 + tickExtra, paint)
                 }
             }
         }

@@ -47,9 +47,21 @@ object TimelineMarkers {
             }
         }
 
+        if (result.isEmpty()) return emptyList()
+
+        for (seg in introSegments) {
+            val end = seg.endMs
+            if (end > seg.startMs && (durationMs <= 0L || end < durationMs - 10_000L)) {
+                val hasPostMarker = result.any { abs(it.timeMs - end) <= 5000L }
+                if (!hasPostMarker) {
+                    result.add(Marker(end, "Episode", MarkerType.CHAPTER))
+                }
+            }
+        }
+
         result.sortBy { it.timeMs }
 
-        if (result.isEmpty() || result.first().timeMs > 10_000L) {
+        if (result.first().timeMs > 10_000L) {
             result.add(0, Marker(0L, "Start", MarkerType.CHAPTER))
         }
 

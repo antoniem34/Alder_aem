@@ -55,12 +55,15 @@ object MkvChapters {
         val reader = EbmlReader(bytes)
         val chapters = mutableListOf<MkvChapter>()
 
+        fun clampEnd(dataStart: Int, size: Long): Int =
+            (dataStart.toLong() + size).coerceIn(dataStart.toLong(), bytes.size.toLong()).toInt()
+
         fun scanEdition(start: Int, end: Int) {
             val r = EbmlReader(bytes, start, end)
             var index = 0
             while (r.hasMore()) {
                 val (id, size, dataStart) = r.readElement() ?: break
-                val dataEnd = (dataStart + size).toInt().coerceAtMost(bytes.size)
+                val dataEnd = clampEnd(dataStart, size)
                 if (id == ID_CHAPTER_ATOM) {
                     val atom = parseAtom(bytes, dataStart, dataEnd, index)
                     if (atom != null) {
@@ -76,7 +79,7 @@ object MkvChapters {
             val r = EbmlReader(bytes, start, end)
             while (r.hasMore()) {
                 val (id, size, dataStart) = r.readElement() ?: break
-                val dataEnd = (dataStart + size).toInt().coerceAtMost(bytes.size)
+                val dataEnd = clampEnd(dataStart, size)
                 if (id == ID_EDITION_ENTRY) {
                     scanEdition(dataStart, dataEnd)
                 }
@@ -88,20 +91,20 @@ object MkvChapters {
         val firstId = reader.peekId()
         if (firstId == ID_CHAPTERS) {
             val (_, size, dataStart) = reader.readElement() ?: return emptyList()
-            scanChapters(dataStart, (dataStart + size).toInt().coerceAtMost(bytes.size))
+            scanChapters(dataStart, clampEnd(dataStart, size))
             return chapters
         }
 
         // Search through top-level elements (inside or outside Segment)
         while (reader.hasMore()) {
             val (id, size, dataStart) = reader.readElement() ?: break
-            val dataEnd = (dataStart + size).toInt().coerceAtMost(bytes.size)
+            val dataEnd = clampEnd(dataStart, size)
             when (id) {
                 ID_SEGMENT -> {
                     val segReader = EbmlReader(bytes, dataStart, dataEnd)
                     while (segReader.hasMore()) {
                         val (segElemId, segElemSize, segDataStart) = segReader.readElement() ?: break
-                        val segDataEnd = (segDataStart + segElemSize).toInt().coerceAtMost(bytes.size)
+                        val segDataEnd = clampEnd(segDataStart, segElemSize)
                         if (segElemId == ID_CHAPTERS) {
                             scanChapters(segDataStart, segDataEnd)
                         }
@@ -116,15 +119,17 @@ object MkvChapters {
     }
 
     internal fun findChaptersSeekPosition(bytes: ByteArray): Long? {
+        fun clampEnd(dataStart: Int, size: Long): Int =
+            (dataStart.toLong() + size).coerceIn(dataStart.toLong(), bytes.size.toLong()).toInt()
         val reader = EbmlReader(bytes)
         while (reader.hasMore()) {
             val (id, size, dataStart) = reader.readElement() ?: break
-            val dataEnd = (dataStart + size).toInt().coerceAtMost(bytes.size)
+            val dataEnd = clampEnd(dataStart, size)
             if (id == ID_SEGMENT) {
                 val segReader = EbmlReader(bytes, dataStart, dataEnd)
                 while (segReader.hasMore()) {
                     val (segId, segSize, sStart) = segReader.readElement() ?: break
-                    val sEnd = (sStart + segSize).toInt().coerceAtMost(bytes.size)
+                    val sEnd = clampEnd(sStart, segSize)
                     if (segId == ID_SEEK_HEAD) {
                         val pos = parseSeekHeadForChapters(bytes, sStart, sEnd)
                         if (pos != null) return pos
@@ -239,7 +244,18 @@ object MkvChapters {
                 c.disconnect()
                 return null
             }
-            return c.inputStream.use { it.readBytes() }
+            return c.inputStream.use { input ->
+                val out = java.io.ByteArrayOutputStream(length)
+                val buf = ByteArray(8192)
+                var remaining = length
+                while (remaining > 0) {
+                    val read = input.read(buf, 0, minOf(buf.size, remaining))
+                    if (read < 0) break
+                    out.write(buf, 0, read)
+                    remaining -= read
+                }
+                out.toByteArray()
+            }
         }
         return null
     }
@@ -258,7 +274,7 @@ object MkvChapters {
         }
 
         fun skip(bytesCount: Long) {
-            offset = (offset + bytesCount).toInt().coerceAtMost(end)
+            offset = (offset.toLong() + bytesCount).coerceIn(offset.toLong(), end.toLong()).toInt()
         }
 
         data class ElementHeader(val id: Long, val size: Long, val dataStart: Int)

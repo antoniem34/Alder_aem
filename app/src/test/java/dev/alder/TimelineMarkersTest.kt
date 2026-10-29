@@ -26,9 +26,10 @@ class TimelineMarkersTest {
         // Expected markers:
         // 0:00 -> Chapter 1
         // 1:12 -> Intro (72_000) - Chapter 2 at 75_000 was dropped
+        // 2:40 -> Episode (160_000) - end of Intro
         // 10:00 -> The Heist (600_000)
         // 20:02 -> Credits (1_202_000) - Chapter 4 at 1_200_000 was dropped
-        assertEquals(4, markers.size)
+        assertEquals(5, markers.size)
         assertEquals("Chapter 1", markers[0].title)
         assertEquals(MarkerType.CHAPTER, markers[0].type)
 
@@ -37,12 +38,21 @@ class TimelineMarkersTest {
         assertEquals(160_000L, markers[1].endMs)
         assertEquals(MarkerType.INTRO, markers[1].type)
 
-        assertEquals("The Heist", markers[2].title)
-        assertEquals(600_000L, markers[2].timeMs)
+        assertEquals("Episode", markers[2].title)
+        assertEquals(160_000L, markers[2].timeMs)
 
-        assertEquals("Credits", markers[3].title)
-        assertEquals(1_202_000L, markers[3].timeMs)
-        assertEquals(MarkerType.CREDITS, markers[3].type)
+        assertEquals("The Heist", markers[3].title)
+        assertEquals(600_000L, markers[3].timeMs)
+
+        assertEquals("Credits", markers[4].title)
+        assertEquals(1_202_000L, markers[4].timeMs)
+        assertEquals(MarkerType.CREDITS, markers[4].type)
+    }
+
+    @Test
+    fun testEmptyWhenNoChaptersOrSegments() {
+        val markers = TimelineMarkers.merge(emptyList(), emptyList(), 0L, 500_000L)
+        assertEquals(0, markers.size)
     }
 
     @Test

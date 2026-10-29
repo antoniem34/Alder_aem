@@ -124,6 +124,24 @@ class MkvChaptersTest {
     }
 
     @Test
+    fun testLargeMultiGigabyteSegmentDoesNotOverflowInt() {
+        val seekEntry = element(0x4DBB,
+            element(0x53AB, byteArrayOf(0x10, 0x43, 0xA7.toByte(), 0x70)) + // Chapters ID
+            element(0x53AC, ulong(123456L))
+        )
+        val seekHead = element(0x114D9B74, seekEntry)
+        val ebmlHeader = element(0x1A45DFA3, byteArrayOf(1))
+        val out = ByteArrayOutputStream()
+        out.write(ebmlHeader)
+        out.write(byteArrayOf(0x18, 0x53, 0x80.toByte(), 0x67)) // ID_SEGMENT
+        out.write(vint(5_000_000_000L)) // 5 GB Segment size (> Int.MAX_VALUE)
+        out.write(seekHead)
+        val buffer = out.toByteArray()
+
+        assertEquals(123456L, MkvChapters.findChaptersSeekPosition(buffer))
+    }
+
+    @Test
     fun testEmptyOrInvalidBufferSafe() {
         assertTrue(MkvChapters.parseChaptersFromBuffer(ByteArray(0)).isEmpty())
         assertTrue(MkvChapters.parseChaptersFromBuffer(byteArrayOf(1, 2, 3, 4)).isEmpty())
