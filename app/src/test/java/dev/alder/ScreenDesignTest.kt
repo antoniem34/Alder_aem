@@ -295,4 +295,13 @@ class ScreenDesignTest {
         assertEquals(null, logoTint(intArrayOf(white, white, 0xFF000000.toInt(), clear)))
         assertEquals(null, logoTint(intArrayOf(clear, clear)))
     }
+
+    @Test fun subtitleTimingLabelsFormatCorrectly() {
+        assertEquals("On time", formatTiming(0L))
+        assertEquals("-0.25 s  earlier", formatTiming(-250L))
+        assertEquals("-1.00 s  earlier", formatTiming(-1000L))
+        assertEquals("+0.25 s  later", formatTiming(250L))
+        assertEquals("+0.50 s  later", formatTiming(500L))
+        assertEquals("+2.50 s  later", formatTiming(2500L))
+    }
 }

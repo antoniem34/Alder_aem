@@ -28,7 +28,12 @@ import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
+import android.os.Looper
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.RendererCapabilities
+import androidx.media3.exoplayer.text.TextOutput
+import androidx.media3.exoplayer.text.TextRenderer
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Format
@@ -53,6 +58,31 @@ import kotlin.math.roundToInt
 internal fun lowerSourceHeight(height: Int): Int? = listOf(1080, 720, 480).firstOrNull { it < height }
 internal fun upNextWindow(durationMs: Long) = minOf(60_000L, maxOf(30_000L, durationMs / 25))
 internal fun plausibleEpisode(durationMs: Long) = durationMs >= 2 * 60_000L
+
+internal fun formatTiming(delay: Long) = when {
+    delay == 0L -> "On time"
+    delay < 0L -> "%+.2f s  earlier".format(delay / 1000f)
+    else -> "%+.2f s  later".format(delay / 1000f)
+}
+
+internal class OffsettableTextRenderer(
+    private val delegate: TextRenderer
+) : Renderer by delegate, RendererCapabilities by delegate {
+    @Volatile
+    var offsetUs: Long = 0L
+
+    override fun getName(): String = delegate.name
+    override fun getTrackType(): Int = delegate.trackType
+    override fun getCapabilities(): RendererCapabilities = this
+
+    override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
+        delegate.render(maxOf(0L, positionUs - offsetUs), elapsedRealtimeUs)
+    }
+
+    override fun resetPosition(positionUs: Long, join: Boolean) {
+        delegate.resetPosition(maxOf(0L, positionUs - offsetUs), join)
+    }
+}
 
 // ExoPlayer with our own controls (buildControls) and audio/subtitle panel (openOptions). Resumes where Stremio says you stopped and
 // writes progress back to the account, so Continue Watching matches on every device.
@@ -101,11 +131,14 @@ class PlayerActivity : Screen() {
     private var wantSub = ""
     private var subsOn = true
     private var viewerAddonSub = false // the viewer chose the addon file, over the file's own in the same language
+    private val dialogueProcessor = DialogueAudioProcessor()
+    private var passthrough = false
     private var pickedSub: String? = null // the exact subtitle picked for this video before: "addon:<url>" or "file:<track id>"
-    // Timing for an addon subtitle file that runs early or late: the file is fetched, its times moved, and attached
-    // from the app's cache instead of its URL. ponytail: SRT and VTT only; ASS and the file's own subtitles can't move.
+    // Timing for subtitles (in the file or from add-ons): offset is applied directly to the TextRenderer live.
     private var subDelay = 0L
-    private var subFile: java.io.File? = null
+    private var textRenderer: OffsettableTextRenderer? = null
+    private var subPref = "on"
+    private var rememberedSubtitles: String? = null
 
     // A series' episodes (for the next one and Stremio's watched ticks), from the meta addon's saved answer when there is one.
     private var meta: Meta? = null
@@ -135,21 +168,41 @@ class PlayerActivity : Screen() {
         if (sources.isEmpty()) return finish()
         // Audio is decoded to PCM here unless Settings says a receiver takes Dolby and DTS: TVs report passthrough
         // (DTS-HD, TrueHD) they then can't open, and playback dies. A track that fails is swapped (onPlayerError).
-        val passthrough = Settings.passthrough(this)
+        passthrough = Settings.passthrough(this)
+        dialogueProcessor.enabled = !passthrough && Settings.clearDialogue(this)
         val renderers = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                 if (passthrough) DefaultAudioSink.Builder(context).build() else
-                object : ForwardingAudioSink(DefaultAudioSink.Builder(context).build()) {
+                object : ForwardingAudioSink(DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(dialogueProcessor)).build()) {
                     override fun getFormatSupport(format: Format): Int =
                         if (format.sampleMimeType == MimeTypes.AUDIO_RAW) super.getFormatSupport(format) else AudioSink.SINK_FORMAT_UNSUPPORTED
 
                     override fun supportsFormat(format: Format) = getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
                 }
+
+            override fun buildTextRenderers(
+                context: Context,
+                output: TextOutput,
+                outputLooper: Looper,
+                extensionRendererMode: Int,
+                out: java.util.ArrayList<Renderer>
+            ) {
+                val list = java.util.ArrayList<Renderer>()
+                super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, list)
+                val wrapped = list.map { r ->
+                    if (r is TextRenderer) {
+                        OffsettableTextRenderer(r).also { textRenderer = it }
+                    } else r
+                }
+                out.addAll(wrapped)
+            }
         }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON) // ffmpeg after the TV's own decoders
         player = ExoPlayer.Builder(this, renderers).build()
         val remembered = Settings.titleChoice(this, metaId)
         wantAudio = remembered?.audio ?: Settings.audioLanguage(this)
-        subsOn = remembered?.subtitles?.isNotEmpty() ?: Settings.subtitles(this)
+        subPref = Settings.subPref(this)
+        rememberedSubtitles = remembered?.subtitles
+        subsOn = remembered?.subtitles?.isNotEmpty() ?: (subPref != "off")
         wantSub = remembered?.subtitles?.ifEmpty { null } ?: Settings.subtitleLanguage(this)
         pickedSub = remembered?.takeIf { it.subtitleVideo == videoId }?.subtitle
         if (pickedSub != null) { subsOn = true; viewerAddonSub = pickedSub!!.startsWith("addon:") }
@@ -318,8 +371,18 @@ class PlayerActivity : Screen() {
                         texts.firstOrNull { g -> !isAddonSub(g) && g.getTrackFormat(0).let { it.id == id &&
                             (it.language == null || Languages.same(it.language, wantSub)) } }
                     }
-                    val pick = if (!subsOn) null
-                        else exact ?: (if (viewerAddonSub) addon else null) ?: inFile(2) ?: addon ?: inFile(1)
+                    val audioLang = best.getTrackFormat(0).language
+                    val foreignAudio = !Languages.same(audioLang, wantSub)
+                    val forcedTrack = texts.filterNot(::isAddonSub).firstOrNull {
+                        Languages.match(it.getTrackFormat(0).language, wantSub) >= 1 &&
+                            (it.getTrackFormat(0).selectionFlags and C.SELECTION_FLAG_FORCED != 0)
+                    }
+                    val pick = when {
+                        !subsOn -> null
+                        exact != null -> exact
+                        subPref == "foreign" && !foreignAudio && rememberedSubtitles == null -> forcedTrack
+                        else -> (if (viewerAddonSub) addon else null) ?: inFile(2) ?: addon ?: inFile(1)
+                    }
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         if (pick == null) setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                         else setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setOverrideForType(TrackSelectionOverride(pick.mediaTrackGroup, 0))
@@ -451,6 +514,7 @@ class PlayerActivity : Screen() {
         viewerAddonSub = addonFile
         pickedSub = pick.ifEmpty { null }
         val code = if (language == "") "" else Languages.code(language)
+        rememberedSubtitles = code
         if (!code.isNullOrEmpty()) wantSub = code
         Settings.pickedInPlayer(this, metaId, subtitles = code, video = videoId, subtitle = pick)
     }
@@ -463,10 +527,12 @@ class PlayerActivity : Screen() {
         toldUnseekable = false
         startMessage = message ?: "Starting · ${s.label}"
         showLoading(startMessage!!)
+        subDelay = 0L
+        textRenderer?.offsetUs = 0L
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true).setDefaultRequestProperties(s.headers)
         val item = MediaItem.Builder().setUri(s.url).apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .setSubtitleConfigurations(listOfNotNull(chosenSub?.let {
-                MediaItem.SubtitleConfiguration.Builder(subFile?.let(android.net.Uri::fromFile) ?: android.net.Uri.parse(it.url)).setMimeType(it.mimeType)
+                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it.url)).setMimeType(it.mimeType)
                     .setLanguage(it.lang).setLabel(it.addon).setId(ADDON_SUB).build()
             })).build()
         // Files with no index (.ts, raw audio, some .avi) seek by their bitrate instead of not at all: ExoPlayer turns
@@ -1142,6 +1208,14 @@ class PlayerActivity : Screen() {
                 .setOverrideForType(TrackSelectionOverride(audio[i].mediaTrackGroup, (0 until audio[i].length).toList())).build()
             Languages.code(audio[i].getTrackFormat(0).language)?.let { wantAudio = it; Settings.pickedInPlayer(this, metaId, audio = it) }
         }
+        if (!passthrough) {
+            val clearDialogueOn = dialogueProcessor.enabled
+            section(list, "Clear dialogue", listOf("Off", "On"), if (clearDialogueOn) 1 else 0) { i ->
+                val on = i == 1
+                dialogueProcessor.enabled = on
+                Settings.setClearDialogue(this, on)
+            }
+        }
         val texts = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT && it.isTrackSupported(0) }
         val subs = texts.filterNot(::isAddonSub)
         val loaded = texts.firstOrNull(::isAddonSub) // the addon file attached now, if any
@@ -1162,14 +1236,58 @@ class PlayerActivity : Screen() {
                     .setOverrideForType(TrackSelectionOverride(subs[i - 1].mediaTrackGroup, 0)).build()
                 sub == chosenSub && loaded != null -> p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .setOverrideForType(TrackSelectionOverride(loaded.mediaTrackGroup, 0)).build()
-                else -> { chosenSub = sub; subDelay = 0; subFile = null; selectAddonSub = true; load(position()); return@section }
+                else -> { chosenSub = sub; subDelay = 0L; textRenderer?.offsetUs = 0L; selectAddonSub = true; load(position()); return@section }
             }
         }
-        val shiftable = chosenSub?.takeIf { loaded?.isSelected == true && it.mimeType != MimeTypes.TEXT_SSA }
-        if (shiftable != null) {
-            val steps = listOf(-2_000L, -1_000L, -500L, 0L, 500L, 1_000L, 2_000L)
-            section(list, "Subtitle timing", steps.map { if (it == 0L) "On time" else "%+.1f s".format(it / 1000f) + if (it < 0) "  earlier" else "  later" },
-                steps.indexOf(subDelay)) { i -> shiftSubtitles(shiftable, steps[i]) }
+        val textTrackSelected = C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes && chosen != 0
+        if (textTrackSelected) {
+            fun headingFor(delay: Long) = "SUBTITLE TIMING · ${if (delay == 0L) "ON TIME" else "%+.2f S".format(delay / 1000f)}"
+            val title = caps(headingFor(subDelay), TUNGSTEN)
+            list.addView(title, wrap().apply { topMargin = dp(18); bottomMargin = dp(5) })
+
+            val words = text("", BODY, color = TEXT_2)
+            val dot = View(this).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(TUNGSTEN) }
+                visibility = if (subDelay != 0L) View.VISIBLE else View.INVISIBLE
+            }
+            val hint = text("Left / Right: 0.25s  ·  OK: reset", SMALL, color = TEXT_3)
+            val row = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(9), 0, dp(9), 0)
+                addView(dot, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(8) })
+                addView(words)
+                addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+                addView(hint)
+
+                fun draw(has: Boolean) {
+                    words.setTextColor(if (has || subDelay != 0L) TEXT else TEXT_2)
+                    words.text = if (has) "‹  ${formatTiming(subDelay)}  ›" else formatTiming(subDelay)
+                    title.text = headingFor(subDelay).uppercase()
+                    dot.visibility = if (subDelay != 0L) View.VISIBLE else View.INVISIBLE
+                }
+                draw(false)
+                rowFocus(8) { has -> draw(has) }
+
+                fun adjust(delta: Long) {
+                    val next = (subDelay + delta).coerceIn(-10_000L, 10_000L)
+                    setSubtitleDelay(next)
+                    draw(true)
+                }
+
+                setOnKeyListener { _, keyCode, event ->
+                    if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                    when (keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> { adjust(-250L); true }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> { adjust(+250L); true }
+                        else -> false
+                    }
+                }
+                setOnClickListener {
+                    if (subDelay != 0L) setSubtitleDelay(0L)
+                    draw(true)
+                }
+            }
+            list.addView(row, LinearLayout.LayoutParams(-1, dp(32)))
         }
         list.addView(View(this).apply { setBackgroundColor(GLASS_EDGE) }, LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(18), 0, dp(10)) })
         list.addView(LinearLayout(this).apply {
@@ -1276,22 +1394,13 @@ class PlayerActivity : Screen() {
     }
 
     /** "English · Dolby Digital 5.1": the language, then the release's own name for the track or, for audio, its format. */
-    /** Re-attaches [sub] with every time moved by [delay] ms (later when positive), from the same second. */
-    private fun shiftSubtitles(sub: Subtitle, delay: Long) {
-        subDelay = delay
-        background({
-            if (delay == 0L) return@background null
-            val times = Regex("""(\d{2}):(\d{2}):(\d{2})([,.])(\d{3})""")
-            val moved = times.replace(Http.get(sub.url)) { m ->
-                val (h, mi, se, sep, ms) = m.destructured
-                val t = maxOf(0L, ((h.toLong() * 60 + mi.toLong()) * 60 + se.toLong()) * 1000 + ms.toLong() + delay)
-                "%02d:%02d:%02d%s%03d".format(t / 3_600_000, t / 60_000 % 60, t / 1000 % 60, sep, t % 1000)
-            }
-            java.io.File(cacheDir, "subtitle." + if (sub.mimeType == MimeTypes.TEXT_VTT) "vtt" else "srt").apply { writeText(moved) }
-        }) { r ->
-            subFile = r.getOrNull()
-            selectAddonSub = true
-            load(position())
+    /** Sets subtitle delay in milliseconds live on the renderer without reloading playback. */
+    private fun setSubtitleDelay(newDelay: Long) {
+        val oldDelay = subDelay
+        subDelay = newDelay
+        textRenderer?.offsetUs = subDelay * 1000L
+        if (subDelay > oldDelay) {
+            player.seekTo(player.currentPosition)
         }
     }
 
