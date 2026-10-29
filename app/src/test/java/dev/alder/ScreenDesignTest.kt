@@ -206,6 +206,37 @@ class ScreenDesignTest {
         assertEquals(null, episodeDate(null))
     }
 
+    @Test fun unairedEpisodesAreProtectedAndBadged() {
+        val fixedNow = 1793275200000L // 2026-10-29 12:00:00 UTC
+
+        // Null / blank / malformed dates count as aired (never locked out)
+        assertEquals(true, isEpisodeAired(null, fixedNow))
+        assertEquals(true, isEpisodeAired("", fixedNow))
+        assertEquals(true, isEpisodeAired("not-a-date", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-02-30", fixedNow))
+
+        // Past dates are aired
+        assertEquals(true, isEpisodeAired("2026-10-28", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-10-29", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-10-29T10:00:00.000Z", fixedNow))
+
+        // Future dates are unaired
+        assertEquals(false, isEpisodeAired("2026-11-14", fixedNow))
+        assertEquals(false, isEpisodeAired("2026-11-14T00:00:00.000Z", fixedNow))
+
+        // Air date labels
+        assertEquals("Airs 14 Nov", airDateLabel("2026-11-14"))
+        assertEquals("Airs 14 Nov", airDateLabel("2026-11-14T00:00:00.000Z"))
+        assertEquals(null, airDateLabel(null))
+
+        // Recently aired: within the last 7 days
+        assertEquals(true, isRecentlyAired("2026-10-29", fixedNow)) // today
+        assertEquals(true, isRecentlyAired("2026-10-25", fixedNow)) // 4 days ago
+        assertEquals(true, isRecentlyAired("2026-10-22", fixedNow)) // 7 days ago
+        assertEquals(false, isRecentlyAired("2026-10-15", fixedNow)) // 14 days ago
+        assertEquals(false, isRecentlyAired("2026-11-14", fixedNow)) // future
+    }
+
     @Test fun repeatedBufferingOffersOneRealQualityStep() {
         assertEquals(1080, lowerSourceHeight(2160))
         assertEquals(720, lowerSourceHeight(1080))
