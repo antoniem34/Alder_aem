@@ -28,9 +28,14 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 
 ### Easier to use
 - **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
+- **Close player controls.** Press Back to close the controls while the video plays. Press Back again to leave the player.
+- **Exact subtitle remembered.** When you play a video again, Alder uses the exact subtitle track that you selected before.
 - **Update notification dot.** A dot on your profile avatar shows when a new version of Alder is ready.
 - **Install an update from the profile menu.** Select your profile avatar, then select **Install update**.
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
+
+### Fixes
+- **Back button on Android 16.** The Back button closes panels and player controls correctly on Android 16.
 
 ## 1.2
 
