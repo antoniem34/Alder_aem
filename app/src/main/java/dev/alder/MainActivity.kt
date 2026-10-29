@@ -88,6 +88,22 @@ internal fun listRowCount(titles: Int, columns: Int) = (titles + columns - 1) / 
 
 internal fun nextCatalogSection(total: Int, loaded: Int) = minOf(total, loaded + 4)
 
+internal fun homeSectionTitle(title: String, isMovie: Boolean): String {
+    if (title.contains("movie", true) || title.contains("film", true) ||
+        title.contains("show", true) || title.contains("series", true)) return title
+    val kind = if (isMovie) "Movies" else "Shows"
+    val singular = if (isMovie) "Movie" else "Show"
+    return when {
+        title.equals("For you", true) -> if (isMovie) "Movies for you" else "Shows for you"
+        title.equals("Top Picks for You", true) -> "Top $singular Picks"
+        title.equals("Recommended for You", true) -> "Recommended $kind"
+        title.contains(" in ", true) -> title.replace(" in ", " $kind in ", ignoreCase = true)
+        title.contains(" on ", true) -> title.replace(" on ", " $kind on ", ignoreCase = true)
+        title.endsWith(" Now", true) -> title.removeSuffix(" Now") + " $kind"
+        else -> "$title $kind"
+    }
+}
+
 internal fun catalogAnswerKey(page: String, title: String, genre: String?, sources: List<String>) =
     (listOf(page, title, genre.orEmpty()) + sources).joinToString("\u0000")
 
@@ -408,7 +424,14 @@ class MainActivity : Screen() {
             // Rows settle after a focus move (the next heading can peek in): name it once, whichever shows.
             main.removeCallbacks(nextRowCheck); main.postDelayed(nextRowCheck, 300)
         }
-        showPage(Page.entries.firstOrNull { it.label == intent.getStringExtra("page") } ?: Page.HOME)
+        val initialPage = Page.entries.firstOrNull { it.label == intent.getStringExtra("page") }
+            ?: when (Settings.startTab(this)) {
+                "movies" -> if (Settings.showMovies(this)) Page.MOVIES else Page.HOME
+                "shows" -> if (Settings.showShows(this)) Page.SHOWS else Page.HOME
+                "library" -> Page.LIBRARY
+                else -> Page.HOME
+            }
+        showPage(initialPage)
         main.postDelayed(::warmPages, WARM_AFTER)
     }
 
@@ -427,7 +450,27 @@ class MainActivity : Screen() {
      * A page's rows: catalogs with the same purpose share a row, and Shows and Movies end with a row per main genre (the
      * first catalog that filters by it) unless a row of that name is already there; the chips jump to these rows.
      */
-    private fun sections(p: Page, shelves: List<Pair<Addon.Catalog, Shelf>>): List<Triple<String, List<Pair<Addon.Catalog, Shelf>>, String?>> {
+    private fun sections(p: Page, shelves: List<Pair<Addon.Catalog, Shelf>>, featuredHome: Boolean = false): List<Triple<String, List<Pair<Addon.Catalog, Shelf>>, String?>> {
+        if (featuredHome) {
+            val homeShelves = shelves.filter { it.second.page == Page.HOME }
+            val movieShelves = shelves.filter { it.second.page == Page.MOVIES }
+            val showShelves = shelves.filter { it.second.page == Page.SHOWS }
+            val homeSections = homeShelves.map { Triple(it.second.title, listOf(it), null as String?) }
+            val genres = emptyList<String>()
+            val movieMerged = movieShelves.groupBy { shortRowName(it.second.title, genres) }
+                .map { (name, list) -> Triple(homeSectionTitle(name, isMovie = true), list, null as String?) }
+                .take(3)
+            val showMerged = showShelves.groupBy { shortRowName(it.second.title, genres) }
+                .map { (name, list) -> Triple(homeSectionTitle(name, isMovie = false), list, null as String?) }
+                .take(3)
+            val combined = mutableListOf<Triple<String, List<Pair<Addon.Catalog, Shelf>>, String?>>()
+            val maxCount = maxOf(movieMerged.size, showMerged.size)
+            for (i in 0 until maxCount) {
+                if (i < movieMerged.size) combined += movieMerged[i]
+                if (i < showMerged.size) combined += showMerged[i]
+            }
+            return homeSections + combined
+        }
         val genres = catalogGenres(shelves.flatMap { it.first.genres })
         return if (!p.isCatalog) shelves.map { Triple(it.second.title, listOf(it), null as String?) } else {
             val merged = shelves.groupBy { shortRowName(it.second.title, genres) }.map { (name, list) -> Triple(name, list, null as String?) }
@@ -462,12 +505,38 @@ class MainActivity : Screen() {
         }
     }) {}
 
+    private var lastFeaturedHome = false
+    private var lastShowMovies = true
+    private var lastShowShows = true
+    private var lastShowLive = true
+    private var lastHiddenRows: Set<String> = emptySet()
+
     // Back from a title or the player: Continue Watching may have moved on, so this asks Stremio, not the disk. Only
     // the library's rows are redrawn, so the remote stays where it was on the rest of the page.
     override fun onRestart() {
         super.onRestart()
-        refreshLibrary?.invoke()
-        refreshAddons?.invoke()
+        val featured = Settings.featuredHome(this)
+        val showMovies = Settings.showMovies(this)
+        val showShows = Settings.showShows(this)
+        val showLive = Settings.showLive(this)
+        val hiddenRows = Settings.hiddenRows(this)
+        val hiddenRowsChanged = hiddenRows != lastHiddenRows
+        lastHiddenRows = hiddenRows
+        lastShowMovies = showMovies
+        lastShowShows = showShows
+        lastShowLive = showLive
+        applyNavVisibility()
+        if ((page == Page.MOVIES && !showMovies) || (page == Page.SHOWS && !showShows) || (page == Page.LIVE && !showLive)) {
+            showPage(Page.HOME)
+            return
+        }
+        if (hiddenRowsChanged || (page == Page.HOME && featured != lastFeaturedHome)) {
+            lastFeaturedHome = featured
+            showPage(page)
+        } else {
+            refreshLibrary?.invoke()
+            refreshAddons?.invoke()
+        }
     }
 
     private var refreshAddons: (() -> Unit)? = null // the open page's add-on check, run again on coming back to Alder
@@ -690,6 +759,8 @@ class MainActivity : Screen() {
                     }
                 }
                 if (p == Page.LIVE) visibility = View.GONE
+                if (p == Page.MOVIES && !Settings.showMovies(this@MainActivity)) visibility = View.GONE
+                if (p == Page.SHOWS && !Settings.showShows(this@MainActivity)) visibility = View.GONE
             }.inNav()
         }
         nav.background = glassOver(nav, NAV_R + 4)
@@ -706,10 +777,20 @@ class MainActivity : Screen() {
         return header
     }
 
-    /** Live in the top bar only for a profile whose add-ons list channels, sport or events. */
+    private var lastAddons: List<Addon> = emptyList()
+
+    /** Live in the top bar only for a profile whose add-ons list channels, sport or events, and if allowed in Settings. */
     private fun showLiveTab(addons: List<Addon>) {
+        lastAddons = addons
         val live = addons.any { a -> a.catalogs.any { shelf(it)?.page == Page.LIVE } }
-        navItems[Page.LIVE]?.visibility = if (live || page == Page.LIVE) View.VISIBLE else View.GONE
+        navItems[Page.LIVE]?.visibility = if ((live && Settings.showLive(this)) || page == Page.LIVE) View.VISIBLE else View.GONE
+    }
+
+    private fun applyNavVisibility() {
+        navItems[Page.MOVIES]?.visibility = if (Settings.showMovies(this) || page == Page.MOVIES) View.VISIBLE else View.GONE
+        navItems[Page.SHOWS]?.visibility = if (Settings.showShows(this) || page == Page.SHOWS) View.VISIBLE else View.GONE
+        val live = lastAddons.any { a -> a.catalogs.any { shelf(it)?.page == Page.LIVE } }
+        navItems[Page.LIVE]?.visibility = if ((live && Settings.showLive(this)) || page == Page.LIVE) View.VISIBLE else View.GONE
     }
 
     private var pending = Page.HOME
@@ -1112,6 +1193,7 @@ class MainActivity : Screen() {
         val opened = android.os.SystemClock.uptimeMillis()
         refreshLibrary = null
         touched = false
+        applyNavVisibility()
         styleNav()
         content.removeAllViews()
         rows.forEach { r -> r.cards.forEach { it.unload() } }
@@ -1124,7 +1206,8 @@ class MainActivity : Screen() {
         cardCaption.visibility = View.GONE
         nextRowHint.visibility = View.GONE
         moreHint.alpha = 0f
-        if (p == Page.HOME) cinema = emptyList() // other pages keep Home's, so the screensaver works there too
+        lastHiddenRows = Settings.hiddenRows(this)
+        if (p == Page.HOME) { lastFeaturedHome = Settings.featuredHome(this); cinema = emptyList() } // other pages keep Home's, so the screensaver works there too
         focusedSomething = false
         // The last page's title goes with it; an empty page (no library yet, no catalogs) shows none.
         heroItem = null
@@ -1205,9 +1288,11 @@ class MainActivity : Screen() {
             if (built || g != generation) return
             built = true
             builtFrom = addons.map { it.id }
+            val featuredHome = p == Page.HOME && Settings.featuredHome(this@MainActivity)
             // Each catalog on its page under a plain name, personal rows first; the sort keeps the addons' order within a rank.
-            val shelves = addons.flatMap { it.catalogs }.mapNotNull { c -> shelf(c)?.takeIf { it.page == p }?.let { c to it } }
-                .sortedBy { it.second.rank }
+            val shelves = addons.flatMap { it.catalogs }.mapNotNull { c ->
+                shelf(c)?.takeIf { it.page == p || (featuredHome && (it.page == Page.MOVIES || it.page == Page.SHOWS) && it.rank <= 2) }?.let { c to it }
+            }.sortedBy { it.second.rank }
             val catalogs = shelves.map { it.first }
             if (catalogs.isEmpty()) {
                 val what = when (p) { Page.MOVIES -> "movie"; Page.LIVE -> "live"; else -> "show" }
@@ -1217,7 +1302,8 @@ class MainActivity : Screen() {
                     .apply { setPadding(dp(PAD), 0, dp(PAD), 0) })
             }
             val genres = catalogGenres(catalogs.flatMap { it.genres })
-            val sections = sections(p, shelves)
+            val hiddenRows = Settings.hiddenRows(this@MainActivity)
+            val sections = sections(p, shelves, featuredHome).filterNot { it.first in hiddenRows }
             val genreNames = (if (p.isCatalog) sections.take(nextCatalogSection(sections.size, 0)).map { it.first }.filter { name -> genres.any { it.equals(name, true) } }
                 else emptyList()).toMutableList()
             val genreResults = mutableMapOf<String, Boolean>()
@@ -1246,6 +1332,7 @@ class MainActivity : Screen() {
                     val version = ++rowVersion
                     val results = answer.getOrNull() ?: emptyList()
                     val items = results.flatMap { it.first }.filterNot { isAddonMessage(it.name) }.distinctBy { it.id }.map(::metaItem)
+                    if (p == Page.HOME && cinema.isEmpty() && items.isNotEmpty()) startCinema(items.take(CINEMA_MAX))
                     if (completed == rowCatalogs.size && !reported) {
                         reported = true
                         batchPending--
@@ -1478,12 +1565,14 @@ class MainActivity : Screen() {
             "hstzee" to "Popular on Hotstar, SonyLIV & Zee5", "hstzeetv" to "Popular on Hotstar, SonyLIV & Zee5",
             "recmov" to "Recommended in India", "atpmub" to "Recommended in India",
         )
+        val lowerId = c.id.lowercase()
         return when {
             c.addon.id.contains("watchly") && c.id.startsWith("watchly.item") -> Shelf(Page.HOME, homeRowName(c.name), 0)
             c.addon.id.contains("watchly") && c.id == "watchly.rec" -> Shelf(typePage, "Top Picks for You", 0)
             c.addon.id.startsWith("trakt.addon") && c.id.startsWith("recommendations") -> Shelf(typePage, "Recommended for You", 1)
             c.addon.id.startsWith("trakt.addon") && c.id.startsWith("trending") -> Shelf(typePage, "Trending Now", 2)
             c.addon.id == "in.rdata.indiastreams" -> Shelf(typePage, india[c.id] ?: c.name, 2)
+            lowerId in setOf("top", "popular", "trending") || c.name.equals("Top", true) || c.name.equals("Popular", true) || c.name.equals("Trending", true) -> Shelf(typePage, tidy(c.name), 2)
             else -> Shelf(typePage, tidy(c.name), 3)
         }
     }
@@ -1594,6 +1683,19 @@ class MainActivity : Screen() {
                     forgetIfSessionGone(error)
                     if (!isFinishing) choose("Couldn't remove it", listOf("OK"), "Check the connection and try again.") { }
                 }
+            }
+        }
+    }
+
+    /** Hold OK on a catalog card: choose a source yourself, or take the whole row off the page. */
+    private fun rowMenu(row: Row, item: Item) {
+        val options = if (row.title.isNotEmpty()) listOf("Choose a source", "Hide row \"${row.title}\"")
+                      else listOf("Choose a source")
+        choose(item.name, options) { selected ->
+            if (selected == 0) play(item, pick = true)
+            else {
+                Settings.hideRow(this, row.title)
+                showPage(page)
             }
         }
     }
@@ -1896,7 +1998,7 @@ class MainActivity : Screen() {
                 setOnClickListener { if (item.live) play(item) else openDetails(item) }
                 if (grid) setOnLongClickListener { listMenu(item); true }
                 else if (item.resume) setOnLongClickListener { continueMenu(item); true }
-                else if (item.live) setOnLongClickListener { play(item, pick = true); true }
+                else setOnLongClickListener { rowMenu(this@Row, item); true }
             }
 
             private var showing: Boolean? = null
