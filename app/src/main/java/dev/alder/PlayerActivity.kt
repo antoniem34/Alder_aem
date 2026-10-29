@@ -445,7 +445,7 @@ class PlayerActivity : Screen() {
                 playPause.foreground = centred(if (playWhenReady) R.drawable.ic_pause else R.drawable.ic_play, 25, BASE)
                 buttonLabels[playPause]?.text = if (playWhenReady) "Pause" else "Play"
                 pausedShade.visibility = if (playWhenReady) View.GONE else View.VISIBLE
-                pauseInfo.visibility = if (playWhenReady) View.GONE else View.VISIBLE
+                pauseKicker.visibility = if (isTrailer || !playWhenReady) View.VISIBLE else View.GONE
                 if (playWhenReady) { if (shown) showControls(null) }
                 else if (options.visibility != View.VISIBLE && upNextPanel.visibility != View.VISIBLE &&
                     stallPanel.visibility != View.VISIBLE && stillPanel.visibility != View.VISIBLE) showControls(playPause)
@@ -1144,6 +1144,7 @@ class PlayerActivity : Screen() {
     private lateinit var nextCell: FrameLayout
     private lateinit var playerLogo: ImageView
     private lateinit var topName: TextView
+    private lateinit var pauseKicker: TextView
     private lateinit var pauseTitle: TextView
     private lateinit var pauseInfo: LinearLayout
     private lateinit var pauseFacts: TextView
@@ -1198,8 +1199,11 @@ class PlayerActivity : Screen() {
             addView(pauseFacts, wrap().apply { marginEnd = dp(10) })
             addView(pauseBadges, wrap())
         }
+        pauseKicker = caps(if (isTrailer) "Trailer" else "Paused", TUNGSTEN).onArt().apply {
+            visibility = if (isTrailer) View.VISIBLE else View.GONE
+        }
         pauseInfo = column(Gravity.START).apply {
-            addView(caps(if (isTrailer) "Trailer" else "Paused", TUNGSTEN).onArt())
+            addView(pauseKicker)
             addView(pauseTitle, LinearLayout.LayoutParams(dp(640), -2).apply { topMargin = dp(6) })
             addView(pauseMetaRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
