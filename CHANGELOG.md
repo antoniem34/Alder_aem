@@ -14,6 +14,12 @@ Write every entry in ASD-STE100 Simplified Technical English (STE):
 
 Put changes that are not released under `## Unreleased`. Before each release, read all of `## Unreleased` again and rewrite each entry that does not obey these rules. Then rename that heading to the version number.
 
+## Unreleased
+
+### Fixes
+- **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
+- **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.
+
 ## 1.2
 
 ### New
