@@ -47,7 +47,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
-- **Cleaner player controls.** The audio and subtitle status sits in the bottom-left corner, and the top progress bar no longer appears while you seek.
+- **Cleaner player controls.** The audio, subtitle, format, and debrid badges sit in one row below the title, and the top progress bar no longer appears while you seek.
 - **Back button on Android 16.** The Back button closes panels and player controls correctly on Android 16.
 
 ## 1.2

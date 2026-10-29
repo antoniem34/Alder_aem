@@ -84,18 +84,20 @@ internal fun playerPauseFacts(subtitle: String, endClock: String?, isTrailer: Bo
         endClock?.takeIf { it.isNotBlank() && !isTrailer && !isLive }?.let { "Ends $it" },
     ).joinToString(Screen.DOT)
 
-internal enum class BadgeBrand { NONE, DOLBY, DTS, DEBRID }
+internal enum class BadgeBrand { NONE, DOLBY, DTS, SUBTITLES, DEBRID }
 
 internal data class PlayerBadge(val brand: BadgeBrand, val label: String, val code: String? = null, val accent: Boolean = false)
 
 internal fun playerBadges(
     stream: Stream?,
     videoHeight: Int = 0,
+    audioLanguage: String? = null,
     audioMime: String? = null,
     audioLabel: String? = null,
     audioChannels: Int = 0,
+    subtitleLanguage: String? = null,
 ): List<PlayerBadge> {
-    if (stream == null && videoHeight <= 0 && audioMime == null) return emptyList()
+    if (stream == null && videoHeight <= 0 && audioMime == null && audioLanguage == null && subtitleLanguage == null) return emptyList()
     val out = mutableListOf<PlayerBadge>()
     val height = videoHeight.takeIf { it > 0 } ?: stream?.height ?: 0
     when {
@@ -112,7 +114,7 @@ internal fun playerBadges(
     val atmos = audioMime == MimeTypes.AUDIO_E_AC3_JOC || "atmos" in words
     val trueHd = audioMime == MimeTypes.AUDIO_TRUEHD || "truehd" in words
     val dolbyDigital = audioMime == MimeTypes.AUDIO_E_AC3 || audioMime == MimeTypes.AUDIO_AC3 ||
-        Regex("\\b(ddp?|e-?ac-?3|dolby.?digital)\\b").containsMatchIn(words)
+        Regex("\\b(ddp?|e-?ac-?3|dolby.?digital)(\\b|\\d)").containsMatchIn(words)
     val dtsX = Regex("dts[-_. ]?x\\b").containsMatchIn(words)
     val dtsHd = audioMime == MimeTypes.AUDIO_DTS_HD || Regex("dts[-_. ]?hd").containsMatchIn(words)
     val dts = audioMime == MimeTypes.AUDIO_DTS || Regex("\\bdts\\b").containsMatchIn(words)
@@ -126,18 +128,29 @@ internal fun playerBadges(
         dolbyDigital -> out += PlayerBadge(BadgeBrand.DOLBY, "AUDIO")
     }
 
+    val langName = audioLanguage?.let { Languages.code(it)?.let(Languages::name) ?: it }
+        ?.trim()?.takeIf { it.isNotEmpty() }?.uppercase(Locale.ROOT)
     val channels = when {
         audioChannels == 8 -> "7.1"
         audioChannels == 6 -> "5.1"
+        audioChannels == 2 -> "2.0"
+        audioChannels == 1 -> "1.0"
         audioChannels > 0 -> null
-        Regex("\\b7[ ._-]?1\\b").containsMatchIn(words) -> "7.1"
-        Regex("\\b5[ ._-]?1\\b").containsMatchIn(words) -> "5.1"
+        Regex("(?<!\\d)7[ ._-]?1\\b").containsMatchIn(words) -> "7.1"
+        Regex("(?<!\\d)5[ ._-]?1\\b").containsMatchIn(words) -> "5.1"
         else -> null
     }
-    if (channels != null && !atmos && !dtsX) out += PlayerBadge(BadgeBrand.NONE, channels)
+    val audioTag = listOfNotNull(langName, channels.takeIf { langName != null || (!atmos && !dtsX) })
+        .joinToString(" ").ifEmpty { null }
+    if (audioTag != null) out += PlayerBadge(BadgeBrand.NONE, audioTag)
+
+    val subName = subtitleLanguage?.let { Languages.code(it)?.let(Languages::name) ?: it }
+        ?.trim()?.takeIf { it.isNotEmpty() }?.uppercase(Locale.ROOT)
+    if (subName != null) out += PlayerBadge(BadgeBrand.SUBTITLES, subName)
+
     if (stream?.remux == true) out += PlayerBadge(BadgeBrand.NONE, "REMUX")
     stream?.debrid?.let { d ->
-        out += PlayerBadge(BadgeBrand.DEBRID, d.name, code = d.tag, accent = true)
+        out += PlayerBadge(BadgeBrand.DEBRID, d.short, code = d.tag, accent = true)
     }
     return out
 }
@@ -1192,12 +1205,7 @@ class PlayerActivity : Screen() {
         }
         refreshBadges()
 
-        trackStatus = text("", SMALL, color = TEXT_2).onArt().apply {
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            maxWidth = dp(260)
-            visibility = if (isTrailer) View.GONE else View.VISIBLE
-        }
+        trackStatus = text("", SMALL, color = TEXT_2).onArt().apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         chapterPill = text("", SMALL, color = TEXT_2).onArt().apply {
             setPadding(dp(10), dp(3), dp(10), dp(3))
             background = pillBackground(false)
@@ -1362,9 +1370,6 @@ class PlayerActivity : Screen() {
             addView(length, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                 rightMargin = dp(PAD); bottomMargin = dp(91)
             })
-            addView(trackStatus, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
-                leftMargin = dp(PAD); bottomMargin = dp(38)
-            })
             addView(buttons, FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM).apply {
                 bottomMargin = dp(11)
             })
@@ -1381,14 +1386,20 @@ class PlayerActivity : Screen() {
             return
         }
         val audio = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }?.getTrackFormat(0)
+        val textGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
+        val subLang = if (textGroup == null || C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes) null
+        else (if (isAddonSub(textGroup)) chosenSub?.lang else textGroup.getTrackFormat(0).language)
+            ?.let(Languages::code)?.let(Languages::name) ?: "On"
         val videoHeight = player.videoFormat?.height?.takeIf { it > 0 }
             ?: tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }?.getTrackFormat(0)?.height ?: 0
         val badges = playerBadges(
             stream = sources.getOrNull(at),
             videoHeight = videoHeight,
+            audioLanguage = audio?.language,
             audioMime = audio?.sampleMimeType,
             audioLabel = audio?.label,
             audioChannels = audio?.channelCount?.takeIf { it > 0 } ?: 0,
+            subtitleLanguage = subLang,
         )
         if (badges == shownBadges && pauseBadges.childCount > 0) return
         shownBadges = badges
@@ -1401,7 +1412,7 @@ class PlayerActivity : Screen() {
         }
     }
 
-    /** Monochrome House Lights brand badge: custom vector marks for Dolby / DTS / Debrid, or crisp typographic lockups. */
+    /** Monochrome House Lights brand badge: custom vector marks for Dolby / DTS / Subtitles / Debrid, or crisp typographic lockups. */
     private fun badgeView(b: PlayerBadge): View {
         val rim = if (b.accent) 0x80F3D9B1.toInt() else GLASS_EDGE
         val frame = GradientDrawable().apply {
@@ -1431,22 +1442,32 @@ class PlayerActivity : Screen() {
                     letterSpacing = 0.06f
                 }, wrap())
             }
-            BadgeBrand.DEBRID -> LinearLayout(this).apply {
+            BadgeBrand.SUBTITLES -> LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 background = frame
-                setPadding(dp(2), 0, dp(6), 0)
-                if (!b.code.isNullOrBlank()) {
-                    addView(text(b.code, 8.5f, bold = true, color = BASE).apply {
-                        includeFontPadding = false
-                        letterSpacing = 0.03f
-                        background = rounded(TUNGSTEN, 3)
-                        setPadding(dp(4), dp(1), dp(4), dp(1))
-                    }, wrap().apply { marginEnd = dp(5) })
-                }
-                addView(text(b.label, 9.5f, bold = true, color = TEXT).apply {
+                setPadding(dp(5), 0, dp(6), 0)
+                addView(ImageView(context).apply {
+                    setImageDrawable(getDrawable(R.drawable.ic_subtitles)?.mutate()?.apply { setTint(TEXT_2) })
+                }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(4) })
+                addView(text(b.label, 9.5f, bold = true, color = TEXT_2).apply {
                     includeFontPadding = false
-                    letterSpacing = 0.03f
+                    letterSpacing = 0.05f
                 }, wrap())
+            }
+            BadgeBrand.DEBRID -> if (b.label == "TB") {
+                FrameLayout(this).apply {
+                    background = frame
+                    setPadding(dp(5), 0, dp(5), 0)
+                    addView(torboxIcon(TUNGSTEN), FrameLayout.LayoutParams(dp(12), dp(12), Gravity.CENTER))
+                }
+            } else {
+                text(b.code ?: b.label, 9.5f, bold = true, color = TUNGSTEN).apply {
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    letterSpacing = 0.04f
+                    background = frame
+                    setPadding(dp(6), 0, dp(6), 0)
+                }
             }
             BadgeBrand.NONE -> text(b.label, 9.5f, bold = true, color = if (b.accent) TUNGSTEN else TEXT_2).apply {
                 gravity = Gravity.CENTER
@@ -1455,6 +1476,45 @@ class PlayerActivity : Screen() {
                 background = frame
                 setPadding(dp(6), 0, dp(6), 0)
             }
+        }
+    }
+
+    /** TorBox isometric 3D cube mark, drawn in [color]. */
+    private fun torboxIcon(color: Int) = object : View(this) {
+        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            strokeWidth = resources.displayMetrics.density * 1.25f
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val path = android.graphics.Path()
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val cx = w / 2f
+            val topY = h * 0.08f
+            val midY = h * 0.32f
+            val botMidY = h * 0.68f
+            val botY = h * 0.92f
+            val leftX = w * 0.10f
+            val rightX = w * 0.90f
+            path.reset()
+            // Outer hexagon of the cube
+            path.moveTo(cx, topY)
+            path.lineTo(rightX, midY)
+            path.lineTo(rightX, botMidY)
+            path.lineTo(cx, botY)
+            path.lineTo(leftX, botMidY)
+            path.lineTo(leftX, midY)
+            path.close()
+            // Inner Y edges of the cube
+            path.moveTo(leftX, midY)
+            path.lineTo(cx, h * 0.52f)
+            path.lineTo(rightX, midY)
+            path.moveTo(cx, h * 0.52f)
+            path.lineTo(cx, botY)
+            canvas.drawPath(path, stroke)
         }
     }
 

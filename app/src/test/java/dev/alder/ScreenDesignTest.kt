@@ -369,9 +369,11 @@ class ScreenDesignTest {
                 PlayerBadge(BadgeBrand.NONE, "4K", accent = true),
                 PlayerBadge(BadgeBrand.DOLBY, "VISION", accent = true),
                 PlayerBadge(BadgeBrand.DOLBY, "ATMOS", accent = true),
-                PlayerBadge(BadgeBrand.DEBRID, "Real-Debrid", code = "RD ⚡", accent = true),
+                PlayerBadge(BadgeBrand.NONE, "ENGLISH 5.1"),
+                PlayerBadge(BadgeBrand.SUBTITLES, "ENGLISH"),
+                PlayerBadge(BadgeBrand.DEBRID, "RD", code = "RD ⚡", accent = true),
             ),
-            playerBadges(dvAtmosRd),
+            playerBadges(dvAtmosRd, audioLanguage = "en", subtitleLanguage = "en"),
         )
 
         val dtsRemuxTb = Stream(
@@ -387,11 +389,12 @@ class ScreenDesignTest {
             listOf(
                 PlayerBadge(BadgeBrand.NONE, "1080p"),
                 PlayerBadge(BadgeBrand.DTS, "HD"),
-                PlayerBadge(BadgeBrand.NONE, "5.1"),
+                PlayerBadge(BadgeBrand.NONE, "INDONESIAN 5.1"),
+                PlayerBadge(BadgeBrand.SUBTITLES, "ENGLISH"),
                 PlayerBadge(BadgeBrand.NONE, "REMUX"),
-                PlayerBadge(BadgeBrand.DEBRID, "TorBox", code = "TB ⚡", accent = true),
+                PlayerBadge(BadgeBrand.DEBRID, "TB", code = "TB ⚡", accent = true),
             ),
-            playerBadges(dtsRemuxTb, audioChannels = 6),
+            playerBadges(dtsRemuxTb, audioLanguage = "id", audioChannels = 6, subtitleLanguage = "eng"),
         )
     }
 }
