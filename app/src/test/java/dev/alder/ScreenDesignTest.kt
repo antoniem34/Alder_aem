@@ -105,6 +105,24 @@ class ScreenDesignTest {
         assertEquals("Adventure", shortRowName("Short & Sweet Adventure", listOf("Drama", "Adventure")))
     }
 
+    @Test fun homeRowsIdentifyMoviesAndShows() {
+        assertEquals("Popular Movies", homeSectionTitle("Popular", true))
+        assertEquals("Popular Shows", homeSectionTitle("Popular", false))
+        assertEquals("Top Movies", homeSectionTitle("Top", true))
+        assertEquals("Top Shows", homeSectionTitle("Top", false))
+        assertEquals("Top Movie Picks", homeSectionTitle("Top Picks for You", true))
+        assertEquals("Top Show Picks", homeSectionTitle("Top Picks for You", false))
+        assertEquals("Recommended Movies", homeSectionTitle("Recommended for You", true))
+        assertEquals("Recommended Shows", homeSectionTitle("Recommended for You", false))
+        assertEquals("Trending Movies", homeSectionTitle("Trending Now", true))
+        assertEquals("Trending Shows", homeSectionTitle("Trending Now", false))
+        assertEquals("Trending Movies in India", homeSectionTitle("Trending in India", true))
+        assertEquals("Popular Movies on Netflix", homeSectionTitle("Popular on Netflix", true))
+        assertEquals("Action Movies", homeSectionTitle("Action", true))
+        assertEquals("Action Shows", homeSectionTitle("Action", false))
+        assertEquals("Popular - Movies", homeSectionTitle("Popular - Movies", true))
+    }
+
     @Test fun runtimeReadsInHoursAndMinutes() {
         assertEquals("2h 27m", runtime("147 min"))
         assertEquals("1h 05m", runtime("65 min"))

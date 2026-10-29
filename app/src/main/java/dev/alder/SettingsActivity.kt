@@ -42,9 +42,14 @@ object Settings {
         .getOrDefault(org.json.JSONObject())
     fun setHidden(c: Context, all: org.json.JSONObject) = prefs(c).edit().putString(profileKey(c, "hidden"), all.toString()).apply()
     fun blurThumbnails(c: Context) = prefs(c).getBoolean(profileKey(c, "blurThumbnails"), prefs(c).getBoolean("blurThumbnails", false))
+    fun startTab(c: Context) = prefs(c).getString(profileKey(c, "startTab"), "home").orEmpty()
+    fun showMovies(c: Context) = prefs(c).getBoolean(profileKey(c, "showMovies"), true)
+    fun showShows(c: Context) = prefs(c).getBoolean(profileKey(c, "showShows"), true)
+    fun showLive(c: Context) = prefs(c).getBoolean(profileKey(c, "showLive"), true)
+    fun featuredHome(c: Context) = prefs(c).getBoolean(profileKey(c, "featuredHome"), false)
     /** A removed profile's taste goes with it, so a new profile in its place starts with none. */
     fun forget(c: Context, profileId: String) = prefs(c).edit().apply {
-        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails").forEach { remove("$it@$profileId") }
+        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "startTab", "showMovies", "showShows", "showLive", "featuredHome").forEach { remove("$it@$profileId") }
         prefs(c).all.keys.filter { it.startsWith("title:") && it.endsWith("@$profileId") }.forEach(::remove)
     }.apply()
 
@@ -425,6 +430,16 @@ class SettingsActivity : Screen() {
                     unhideMenu(::count)
                 }
                 count()
+                choiceRow(Choice("startTab", "Default tab", "Which tab opens when starting the app.",
+                    listOf("home" to "Home", "movies" to "Movies", "shows" to "Shows", "library" to "My List"), perProfile = true))
+                choiceRow(Choice("showMovies", "Movies tab", "Show the Movies tab in the top navigation bar.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("showShows", "Shows tab", "Show the Shows tab in the top navigation bar.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("showLive", "Live tab", "Show the Live tab when your add-ons have TV channels.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("featuredHome", "Featured on Home", "Show top recommendations and trending rows below Continue Watching.",
+                    listOf(false to "Off", true to "On"), perProfile = true))
                 choiceRow(Choice("blurThumbnails", "Blur episode thumbnails",
                     "Blur pictures of unwatched episodes in show guides to avoid spoilers.",
                     listOf(false to "Off", true to "On"), perProfile = true))
