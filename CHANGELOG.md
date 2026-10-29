@@ -17,6 +17,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **New episode tags.** A tungsten tag shows on Continue Watching when a new episode is available.
+- **Protect unreleased episodes.** Alder shows the air date for future episodes and disables playback until they air.
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
 - **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
 - **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.

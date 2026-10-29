@@ -16,8 +16,42 @@ import android.widget.TextClock
 import android.widget.TextView
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+internal fun isEpisodeAired(released: String?, now: Long = System.currentTimeMillis()): Boolean {
+    if (released.isNullOrBlank()) return true
+    val day = released.take(10).takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) } ?: return true
+    val source = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false; timeZone = TimeZone.getTimeZone("UTC") }
+    if (runCatching { source.parse(day) }.getOrNull() == null) return true
+
+    if (released.length >= 19 && released.contains('T')) {
+        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val full = runCatching { iso.parse(released.take(19)) }.getOrNull()
+        if (full != null && full.time <= now) return true
+    }
+
+    val localToday = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
+    val utcToday = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(now))
+    return day <= localToday || day <= utcToday
+}
+
+internal fun airDateLabel(released: String?): String? {
+    val day = released?.take(10)?.takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) } ?: return null
+    val source = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false; timeZone = TimeZone.getTimeZone("UTC") }
+    val parsed = runCatching { source.parse(day) }.getOrNull() ?: return null
+    return "Airs " + SimpleDateFormat("d MMM", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(parsed)
+}
+
+internal fun isRecentlyAired(released: String?, now: Long = System.currentTimeMillis()): Boolean {
+    if (!isEpisodeAired(released, now)) return false
+    val day = released?.take(10)?.takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) } ?: return false
+    val source = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false; timeZone = TimeZone.getTimeZone("UTC") }
+    val parsed = runCatching { source.parse(day) }.getOrNull() ?: return false
+    val age = now - parsed.time
+    return age in 0..(8L * 24 * 60 * 60 * 1000L)
+}
 
 internal fun episodeDate(value: String?): String? {
     val day = value?.take(10)?.takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) } ?: return null
@@ -196,6 +230,48 @@ class DetailsActivity : Screen() {
         val episode = target?.second
         // Under a minute in is not started: a title opened and closed at 0:00 offers Play, not Resume.
         val resumeAt = (item?.let { Library.resumeAt(it, target?.first ?: metaId) } ?: 0L).takeIf { it >= STARTED } ?: 0L
+        val videos = m.videos
+        val watched = Library.watched(item, videos)
+        val airedVideos = videos.filter { it.season > 0 && isEpisodeAired(it.released) }
+        val currentVideoId = item?.optJSONObject("state")?.text("video_id")
+        val currentVideo = videos.firstOrNull { it.id == currentVideoId }
+        val unairedNext = when {
+            // Unfinished playback always resumes
+            resumeAt > 0 -> null
+            // Unpremiered show: first target episode is unaired
+            episode != null && !isEpisodeAired(episode.released) -> episode
+            // Caught up pointer is unaired
+            currentVideo != null && !isEpisodeAired(currentVideo.released) -> currentVideo
+            // All aired episodes watched: next in line is unaired
+            airedVideos.isNotEmpty() && airedVideos.all { it.id in watched } ->
+                videos.firstOrNull { it.season > 0 && !isEpisodeAired(it.released) && it.id !in watched }
+            else -> null
+        }
+
+        if (type == "series" && unairedNext != null) {
+            val airDate = airDateLabel(unairedNext.released)?.removePrefix("Airs ")
+                ?: episodeDate(unairedNext.released)?.replace(Regex(" \\d{4}$"), "")
+                ?: "soon"
+            val prefix = if (airedVideos.isEmpty()) "Premiere" else "Up to date"
+            val caughtUp = "$prefix  ·  S${unairedNext.season} E${unairedNext.episode} airs $airDate"
+            stack.addView(text(caughtUp, SMALL, bold = true).onArt().apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            }.marginTop(16))
+
+            playButton = pill("Episodes").apply {
+                setOnClickListener { showGuide() }
+            }
+            infoButton = iconButton("ⓘ", "More information") { showInfo() }
+            listButton = iconButton(if (Library.inList(item)) "✓" else "+", "My List") { toggleList() }
+            stack.addView(LinearLayout(this).apply {
+                clipChildren = false
+                addView(playButton, wrap().apply { marginEnd = dp(14) })
+                addView(listButton, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) })
+                addView(infoButton)
+            }, wrap().apply { topMargin = dp(16) })
+            playButton.post { if (!guideOpen && !infoOpen && !similarOpen) playButton.requestFocus() }
+            return
+        }
         val duration = item?.optJSONObject("state")?.optLong("duration") ?: 0L
         val remaining = if (resumeAt > 0 && duration > resumeAt) runtime("${(duration - resumeAt) / 60_000} min") + " left" else null
         val where = listOfNotNull(episode?.let { "S${it.season} E${it.episode}" }, episode?.title?.takeIf { it.isNotBlank() }, remaining).joinToString(DOT)
@@ -378,30 +454,39 @@ class DetailsActivity : Screen() {
             val resumeAt = item?.let { Library.resumeAt(it, video.id) } ?: 0L
             val duration = item?.optJSONObject("state")?.takeIf { it.text("video_id") == video.id }
                 ?.optLong("duration") ?: 0L
+            val aired = isEpisodeAired(video.released)
             val status = when {
+                !aired -> airDateLabel(video.released).orEmpty()
                 video.id in watched -> "✓"
                 resumeAt > 0 && duration > resumeAt -> "${(duration - resumeAt) / 60_000} min left"
                 else -> meta?.runtime.orEmpty()
             }
+            val titleColor = when {
+                !aired -> TEXT_3
+                video.id in watched -> TEXT_2
+                else -> TEXT
+            }
             row.addView(text(video.title.ifBlank { "Episode ${video.episode}" }, BODY,
-                color = if (video.id in watched) TEXT_2 else TEXT).apply {
+                color = titleColor).apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             }, FrameLayout.LayoutParams(dp(225), -2, Gravity.CENTER_VERTICAL).apply { leftMargin = dp(46) })
             if (status.isNotEmpty()) row.addView(text(status, SMALL,
-                color = if (video.id in watched) TUNGSTEN else TEXT_2).apply { gravity = Gravity.END },
+                color = if (!aired) TEXT_3 else if (video.id in watched) TUNGSTEN else TEXT_2).apply { gravity = Gravity.END },
                 FrameLayout.LayoutParams(dp(98), -2, Gravity.CENTER_VERTICAL or Gravity.END).apply {
                     rightMargin = dp(12)
                 })
             row.rowFocus(9) { focused -> if (focused) updatePreview(video) }
-            row.setOnClickListener {
-                val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
-                openSources(video.id, startOver = false, next = next, label = "S${video.season} E${video.episode}")
-            }
-            row.setOnLongClickListener {
-                val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
-                openSources(video.id, startOver = false, next = next,
-                    label = "S${video.season} E${video.episode}", pick = true)
-                true
+            if (aired) {
+                row.setOnClickListener {
+                    val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
+                    openSources(video.id, startOver = false, next = next, label = "S${video.season} E${video.episode}")
+                }
+                row.setOnLongClickListener {
+                    val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
+                    openSources(video.id, startOver = false, next = next,
+                        label = "S${video.season} E${video.episode}", pick = true)
+                    true
+                }
             }
             guideRows.addView(row, LinearLayout.LayoutParams(-1, dp(45)))
             row

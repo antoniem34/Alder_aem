@@ -293,6 +293,7 @@ class MainActivity : Screen() {
         val stoppedAt: Long? = null,
         val addedAt: String? = null,
         val finished: Boolean = false,
+        var newEpisode: Boolean = false,
     ) {
         val live get() = isLiveType(type) // a channel or event: plays from its card, no title page
         var filled = false
@@ -1085,8 +1086,11 @@ class MainActivity : Screen() {
             else meta?.runtime
         // A show in progress describes its next episode, so the line names that episode rather than the show.
         val code = item.left?.split(DOT)?.firstOrNull { it.startsWith("S") && " E" in it }
-        heroFacts.text = (if (code != null) listOfNotNull(code, episode(item)?.title?.takeIf { it.isNotEmpty() })
-            else listOfNotNull(year, genre, length)).joinToString(DOT)
+        val factsList = mutableListOf<String>()
+        if (item.newEpisode) factsList += "New episode"
+        if (code != null) factsList += listOfNotNull(code, episode(item)?.title?.takeIf { it.isNotEmpty() })
+        else factsList += listOfNotNull(year, genre, length)
+        heroFacts.text = factsList.joinToString(DOT)
         val rating = meta?.rating ?: item.facts.firstOrNull { it.startsWith("IMDb") }?.removePrefix("IMDb ")
         heroRating.visibility = if (rating.isNullOrBlank()) View.GONE else View.VISIBLE
         heroScore.visibility = heroRating.visibility
@@ -1239,7 +1243,17 @@ class MainActivity : Screen() {
             var shown: String? = null // what's on screen, to tell whether the fresh library changed anything
             var fresh = false
             fun show(list: List<JSONObject>, force: Boolean = false) {
-                val cw = Library.continueWatching(list)
+                val cw = Library.continueWatching(list).filterNot { raw ->
+                    val s = raw.optJSONObject("state") ?: return@filterNot false
+                    if (s.optLong("timeOffset") != 1L) return@filterNot false
+                    val vid = s.text("video_id") ?: return@filterNot false
+                    val id = raw.optString("_id")
+                    val type = raw.optString("type")
+                    val m = metas[id] ?: runCatching { Stremio.savedAddons(key)?.savedMeta(type, id) ?: Stremio.addons(key).savedMeta(type, id) }.getOrNull()
+                    if (m != null) metas[id] = m
+                    val v = m?.videos?.firstOrNull { it.id == vid }
+                    v != null && !isEpisodeAired(v.released)
+                }
                 val what = (if (p == Page.HOME) cw else list).joinToString {
                     it.optString("_id") + it.optString("_mtime") + it.optBoolean("removed") + it.optJSONObject("state")?.optLong("timeOffset")
                 }
@@ -1973,6 +1987,14 @@ class MainActivity : Screen() {
                     background = rounded(0x99000000.toInt(), 8)
                     setPadding(dp(8), dp(3), dp(8), dp(4))
                 }, LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(10), 0) })
+                val addBadge = {
+                    face.addView(caps("New episode", TUNGSTEN).apply {
+                        tag = "new_badge"
+                        background = rounded(0xCC000000.toInt(), 6)
+                        setPadding(dp(8), dp(3), dp(8), dp(4))
+                    }, LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(10), dp(10), 0, 0) })
+                }
+                if (wide && item.newEpisode) addBadge()
                 addView(face, LayoutParams(-1, -1))
                 // A white bar inset and rounded inside the card's dark foot, so it reads as a bar and not a cropped edge.
                 if (progress != null) addView(progress.apply { clipToOutline = true },
@@ -1984,7 +2006,10 @@ class MainActivity : Screen() {
                 addView(shade, LayoutParams(-1, -1))
                 isFocusable = true
                 tag = "card:${item.id}"
-                item.onFill += { if (wanted) load() }
+                item.onFill += {
+                    if (wide && item.newEpisode && face.findViewWithTag<View>("new_badge") == null) addBadge()
+                    if (wanted) load()
+                }
                 setOnFocusChangeListener { _, has ->
                     // Focus grows into the gaps without moving its neighbours, and wears a white edge that reads from the
                     // couch on any poster (the clip to the card's outline keeps it inside the rounded corners).
@@ -2099,6 +2124,10 @@ class MainActivity : Screen() {
         if (item.logo == null) item.logo = m.logo
         if (item.about.isEmpty()) item.about = m.description ?: ""
         if (item.facts.isEmpty() || item.resume) item.facts = facts(m)
+        if (item.stoppedAt == 1L && item.videoId != null) {
+            val v = m.videos.firstOrNull { it.id == item.videoId }
+            if (v != null && isRecentlyAired(v.released)) item.newEpisode = true
+        }
         // Home's first title (the first card the remote lands on): next launch starts on its art and logo.
         if (cinema.firstOrNull() === item && item.art != null) getSharedPreferences("home", MODE_PRIVATE).edit()
             .putString("art:${profile.id}", item.art).putString("logo:${profile.id}", item.logo).apply()
@@ -2135,11 +2164,21 @@ class MainActivity : Screen() {
         val mins = (duration - offset) / 60_000
         val left = if (duration > 0 && offset > 1) (if (mins >= 60) "${mins / 60}h ${mins % 60}m left" else "$mins min left") else null
         val progress = if (duration > 0) (offset.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        val id = item.getString("_id")
+        val type = item.optString("type")
+        val newEpisode = if (offset == 1L && videoId != null) {
+            val key = profile.authKey
+            val m = metas[id] ?: runCatching { Stremio.savedAddons(key)?.savedMeta(type, id) ?: Stremio.addons(key).savedMeta(type, id) }.getOrNull()
+            if (m != null) metas[id] = m
+            val v = m?.videos?.firstOrNull { it.id == videoId }
+            v != null && isRecentlyAired(v.released)
+        } else false
         return Item(
-            item.getString("_id"), item.optString("type"), item.optString("name"), item.text("poster"),
-            null, Images.logoFor(item.getString("_id")), "", emptyList(), videoId, progress,
+            id, type, item.optString("name"), item.text("poster"),
+            null, Images.logoFor(id), "", emptyList(), videoId, progress,
             resume = progress > 0, left = listOfNotNull(episode, left).joinToString(DOT).ifEmpty { null }, stoppedAt = offset,
             addedAt = item.text("_ctime"), finished = libraryFinished(item),
+            newEpisode = newEpisode,
         )
     }
 
