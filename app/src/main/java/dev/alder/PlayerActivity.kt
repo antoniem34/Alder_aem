@@ -54,6 +54,19 @@ internal fun lowerSourceHeight(height: Int): Int? = listOf(1080, 720, 480).first
 internal fun upNextWindow(durationMs: Long) = minOf(60_000L, maxOf(30_000L, durationMs / 25))
 internal fun plausibleEpisode(durationMs: Long) = durationMs >= 2 * 60_000L
 
+// Fall-asleep protection: episodes that end in a row with no remote key pressed are counted, and the next one waits
+// behind "Still watching?" instead of streaming all night (debrid traffic, and Stremio's watched ticks).
+internal const val QUIET_EPISODES = 3
+internal const val SLEEP_TIMER = 60 * 60_000L
+/** [endedQuietly] episodes in a row, this one included, ended with no key pressed: ask before the next one. */
+internal fun askStillWatching(endedQuietly: Int) = endedQuietly >= QUIET_EPISODES
+/** The Sleep row's value in Audio & subtitles: "Off", "After this episode" or "In 42 min". */
+internal fun sleepLabel(stopAfter: Boolean, sleepAt: Long, now: Long) = when {
+    stopAfter -> "After this episode"
+    sleepAt > now -> "In ${(sleepAt - now + 59_999) / 60_000} min"
+    else -> "Off"
+}
+
 // ExoPlayer with our own controls (buildControls) and audio/subtitle panel (openOptions). Resumes where Stremio says you stopped and
 // writes progress back to the account, so Continue Watching matches on every device.
 // It gets a short list of sources: one that fails, or hasn't shown a picture after START_WAIT, gives way to the next
@@ -113,6 +126,12 @@ class PlayerActivity : Screen() {
     // "Up next": offered during credits; the current episode keeps playing until the viewer chooses the next one.
     private lateinit var upNextPanel: FrameLayout
     private var upNextDismissed = false
+    // "Still watching?": episodes before this one that ended with no key pressed (carried in the intent from one
+    // episode to the next, and to another source), and the sleep choices: stop when this one ends, or pause at sleepAt.
+    private lateinit var stillPanel: FrameLayout
+    private var quiet = 0
+    private var stopAfter = false
+    private var sleepAt = 0L
     // The pill's other use: a source that keeps stalling (three times in a minute) is offered a lower quality once.
     private var offeringLower = false
     private val stalls = ArrayDeque<Long>()
@@ -176,6 +195,10 @@ class PlayerActivity : Screen() {
         }
         pausedShade = View(this).apply { setBackgroundColor(0x4D000000); visibility = View.GONE }
         upNextPanel = FrameLayout(this).apply { visibility = View.GONE }
+        stillPanel = FrameLayout(this).apply { visibility = View.GONE }
+        quiet = intent.getIntExtra("quiet", 0)
+        sleepAt = intent.getLongExtra("sleepAt", 0L)
+        stopAfter = intent.getBooleanExtra("stopAfter", false) // another source of this video; the next episode gets a fresh intent
         controls = buildControls()
         loading = buildLoading()
         stallPanel = FrameLayout(this).apply { visibility = View.GONE }
@@ -194,6 +217,7 @@ class PlayerActivity : Screen() {
             addView(loading, FrameLayout.LayoutParams(-1, -1))
             addView(stallPanel, FrameLayout.LayoutParams(-1, -1))
             addView(upNextPanel, FrameLayout.LayoutParams(-1, -1))
+            addView(stillPanel, FrameLayout.LayoutParams(-1, -1))
             addView(skip, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(PAD), dp(PAD + 40)) })
         }
         setContentView(screen)
@@ -261,13 +285,17 @@ class PlayerActivity : Screen() {
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                // At the real end the next episode starts, unless the viewer chose to watch the credits.
+                // At the real end the next episode starts, unless the viewer chose to watch the credits or to stop after
+                // this one, or this is the third episode in a row with no key pressed: then "Still watching?" waits.
                 if (state == Player.STATE_ENDED) {
+                    val upcoming = nextVideo()
                     // shortcut: sub-two-minute series streams are treated as addon placeholders; revisit for short-form shows.
                     if (type == "series" && !plausibleEpisode(player.duration)) {
                         started = false // retry from the original resume point, not the placeholder's short ending
                         next("source ended as a short placeholder")
-                    } else if (nextVideo() != null && !upNextDismissed) playNext() else finish()
+                    } else if (upcoming == null || upNextDismissed || stopAfter) finish()
+                    else if (askStillWatching(quiet + 1)) showStillWatching(upcoming)
+                    else playNext(quiet + 1)
                 }
                 if (state == Player.STATE_BUFFERING) showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources[at].label}")
                 if (state == Player.STATE_READY && started) hideLoading()
@@ -282,7 +310,7 @@ class PlayerActivity : Screen() {
                 pauseInfo.visibility = if (playWhenReady) View.GONE else View.VISIBLE
                 if (playWhenReady) { if (shown) showControls(null) }
                 else if (options.visibility != View.VISIBLE && upNextPanel.visibility != View.VISIBLE &&
-                    stallPanel.visibility != View.VISIBLE) showControls(playPause)
+                    stallPanel.visibility != View.VISIBLE && stillPanel.visibility != View.VISIBLE) showControls(playPause)
             }
 
             override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
@@ -541,6 +569,10 @@ class PlayerActivity : Screen() {
 
     // Progress every 10 s, pushed to Stremio every minute (Stremio's own apps push every 3 minutes).
     private fun tick() {
+        if (sleepAt in 1..System.currentTimeMillis() && stillPanel.visibility != View.VISIBLE) {
+            setSleepAt(0)
+            showStillWatching(null)
+        }
         record()
         if (++ticks % 6 == 0) push()
         main.postDelayed(tickTask, TICK)
@@ -658,6 +690,7 @@ class PlayerActivity : Screen() {
 
     private fun showUpNext() {
         if (type == "series" && !plausibleEpisode(player.duration)) return
+        if (stopAfter || stillPanel.visibility == View.VISIBLE) return // Sleep: After this episode
         val next = nextVideo() ?: return
         if (offeringLower) dismissStall()
         if (shown) hideControls(force = true)
@@ -691,8 +724,9 @@ class PlayerActivity : Screen() {
         upNextPanel.visibility = View.GONE
     }
 
-    /** Hands the next episode to the sources page, which starts it (preferring this release's group) and finishes here. */
-    private fun playNext() {
+    /** Hands the next episode to the sources page, which starts it (preferring this release's group) and finishes here.
+     *  [quietly]: episodes in a row that ended with no key pressed (0 when the viewer chose it). */
+    private fun playNext(quietly: Int = 0) {
         val next = nextVideo() ?: return finish()
         val videos = meta!!.videos
         val after = videos.getOrNull(videos.indexOf(next) + 1)?.takeIf { it.season != 0 }
@@ -703,8 +737,79 @@ class PlayerActivity : Screen() {
             .putExtra("videoId", next.id).putExtra("nextVideoId", after?.id)
             .putExtra("label", "$name  ·  S${next.season} E${next.episode}")
             .putExtra("logo", meta?.logo).putExtra("still", next.thumbnail).putExtra("runtime", meta?.runtime)
-            .putExtra("episode", "S${next.season} E${next.episode}  ·  ${next.title}"))
+            .putExtra("episode", "S${next.season} E${next.episode}  ·  ${next.title}")
+            .putExtra("quiet", quietly).putExtra("sleepAt", sleepAt))
         finish()
+    }
+
+    /**
+     * "Still watching?", in the Up next place: before the next episode once [QUIET_EPISODES] ended with no key pressed
+     * ([next]), or when the sleep timer runs out (null: Resume). Playback stops, and the screen may sleep.
+     */
+    private fun showStillWatching(next: Video?) {
+        if (offeringLower) dismissStall()
+        if (shown) hideControls(force = true)
+        options.visibility = View.GONE
+        upNextPanel.visibility = View.GONE
+        hideLoading()
+        stillPanel.removeAllViews()
+        stillPanel.visibility = View.VISIBLE
+        player.pause()
+        pausedShade.visibility = View.VISIBLE
+        view.keepScreenOn = false // nobody may be watching: let the TV's own screen saver and sleep take over
+        val play = pill(if (next != null) "Play S${next.season} E${next.episode}" else "Resume", R.drawable.ic_play).apply {
+            setOnClickListener { if (next != null) playNext() else leaveStillWatching() }
+        }
+        val actions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        actions.addView(play, wrap())
+        actions.addView(chip("Exit to Home").apply {
+            setOnClickListener {
+                startActivity(Intent(this@PlayerActivity, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                finish()
+            }
+        }, wrap().apply { marginStart = dp(8) })
+        val title = next?.let { it.title.ifBlank { "Episode ${it.episode}" } } ?: pauseTitle.text.toString()
+        val why = if (next != null) "$QUIET_EPISODES episodes played with no remote press." else "The sleep timer paused playback."
+        val content = column(Gravity.START).apply {
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            background = android.graphics.drawable.LayerDrawable(arrayOf(rounded(BASE and 0xD9FFFFFF.toInt(), 14), glass(14)))
+            addView(caps("Still watching?", TUNGSTEN).onArt())
+            addView(text(title, SERIF_HERO, serif = true).onArt().apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(text(why, SMALL, color = TEXT_2).onArt(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+            addView(actions, wrap().apply { topMargin = dp(16) })
+        }
+        stillPanel.addView(content, FrameLayout.LayoutParams(dp(500), -2, Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = dp(PAD); bottomMargin = dp(68)
+        })
+        play.requestFocus()
+    }
+
+    /** Back or Resume on "Still watching?": at the end the player closes; mid-episode it stays paused with the controls. */
+    private fun leaveStillWatching(resume: Boolean = true) {
+        if (player.playbackState == Player.STATE_ENDED) return finish()
+        stillPanel.visibility = View.GONE
+        stillPanel.removeAllViews()
+        view.keepScreenOn = true
+        if (resume) player.play()
+        showControls(playPause)
+    }
+
+    private fun setSleepAt(at: Long) {
+        sleepAt = at
+        intent.putExtra("sleepAt", at) // so another source of this video keeps the timer
+    }
+
+    /** OK on the Sleep row: Off → After this episode (series) → In 60 min → Off. */
+    private fun cycleSleep() {
+        when {
+            stopAfter -> { stopAfter = false; setSleepAt(System.currentTimeMillis() + SLEEP_TIMER) }
+            sleepAt > 0 -> setSleepAt(0)
+            type == "series" -> stopAfter = true
+            else -> setSleepAt(System.currentTimeMillis() + SLEEP_TIMER)
+        }
+        intent.putExtra("stopAfter", stopAfter)
     }
 
     /**
@@ -731,6 +836,15 @@ class PlayerActivity : Screen() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Someone is awake: the count of episodes with no key pressed starts again (also for another source of this one).
+        if (event.action == KeyEvent.ACTION_DOWN && quiet != 0) { quiet = 0; intent.removeExtra("quiet") }
+        if (stillPanel.visibility == View.VISIBLE) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP) leaveStillWatching(resume = false)
+                return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
         if (upNextPanel.visibility == View.VISIBLE) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
@@ -1120,7 +1234,7 @@ class PlayerActivity : Screen() {
 
     // ---------- playback options, after design/player-options-cinematic-minimal-glass.png ----------
     // A panel down the left over a darkening: the audio tracks, the subtitles (Off first), and Change stream with the
-    // source playing. The chosen track has a tick; OK on another switches to it there and then. Back closes it.
+    // source playing, then the Sleep row. The chosen track has a tick; OK on another switches to it there and then. Back closes it.
     private lateinit var options: FrameLayout
     private lateinit var optionsBar: SeekBar
     private lateinit var optionsElapsed: TextView
@@ -1183,6 +1297,20 @@ class PlayerActivity : Screen() {
             rowFocus(8)
             setOnClickListener { changeStream() }
         }, LinearLayout.LayoutParams(-1, -2))
+        // One quiet row at the bottom: OK moves to the next sleep choice.
+        list.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+            val value = text(sleepLabel(stopAfter, sleepAt, System.currentTimeMillis()), SMALL, color = TEXT_3)
+            addView(text("Sleep", BODY, color = TEXT_2), wrap())
+            addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+            addView(value, wrap())
+            rowFocus(8)
+            setOnClickListener {
+                cycleSleep()
+                value.text = sleepLabel(stopAfter, sleepAt, System.currentTimeMillis())
+            }
+        }, LinearLayout.LayoutParams(-1, dp(32)).apply { topMargin = dp(4) })
 
         options.removeAllViews()
         options.addView(ScrollView(this).apply {
