@@ -579,10 +579,11 @@ class PlayerActivity : Screen() {
     }
 
     /** The episode after this one, or null for a film, the last episode, or before the episode list is in. */
-    private fun nextVideo(): Video? {
+    private fun nextVideo(onlyAired: Boolean = true): Video? {
         val videos = meta?.videos ?: return null
         val at = videos.indexOfFirst { it.id == videoId }.takeIf { it >= 0 } ?: return null
-        return videos.getOrNull(at + 1)?.takeIf { it.season != 0 || videos[at].season == 0 } // not from the finale into specials
+        val next = videos.getOrNull(at + 1)?.takeIf { it.season != 0 || videos[at].season == 0 } // not from the finale into specials
+        return if (onlyAired && next != null && !isEpisodeAired(next.released)) null else next
     }
 
     private fun stalled() {
@@ -1327,7 +1328,7 @@ class PlayerActivity : Screen() {
         record()
         // The player's own episode list first: Home's Resume passes no next episode when the title's details weren't in
         // yet, and a finished episode with no next one drops the title out of Continue Watching.
-        item?.let { Library.stopped(it, nextVideo()?.id ?: intent.getStringExtra("nextVideoId")) }
+        item?.let { Library.stopped(it, nextVideo(onlyAired = false)?.id ?: intent.getStringExtra("nextVideoId")) }
         push()
     }
 
