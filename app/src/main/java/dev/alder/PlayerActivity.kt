@@ -347,8 +347,9 @@ class PlayerActivity : Screen() {
             main.postDelayed(tickTask, TICK)
             main.post(skipTask)
         }
+        val waitMs = if (pickedSub?.startsWith("addon:") == true) 3_500L else SUB_WAIT
         val stopWaiting = Runnable { subsAnswered = true; waiting?.let(::begin) }
-        main.postDelayed(stopWaiting, SUB_WAIT)
+        main.postDelayed(stopWaiting, waitMs)
         background({
             // Every language: the profile's subtitle language and English first, three files each in the addon's order,
             // then one file for each other language by name, so the list stays short enough for a remote.
@@ -365,7 +366,12 @@ class PlayerActivity : Screen() {
             if (subsAnswered) { // too late for the start: offered in the list, and the file picked last time attached now
                 if (exact != null && chosenSub == null) {
                     chosenSub = exact
-                    if (prepared) { selectAddonSub = true; load(position()) }
+                    if (prepared) {
+                        selectAddonSub = true
+                        val playing = player.playWhenReady
+                        load(position())
+                        player.playWhenReady = playing
+                    }
                 }
                 return@background
             }
