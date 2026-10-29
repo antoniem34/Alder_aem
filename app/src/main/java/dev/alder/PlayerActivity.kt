@@ -270,7 +270,10 @@ class PlayerActivity : Screen() {
                     } else if (nextVideo() != null && !upNextDismissed) playNext() else finish()
                 }
                 if (state == Player.STATE_BUFFERING) showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources[at].label}")
-                if (state == Player.STATE_READY && started) hideLoading()
+                if (state == Player.STATE_READY && started) {
+                    hideLoading()
+                    updateMarkers()
+                }
                 // A seek buffers too; only stalls in plain playback count.
                 if (state == Player.STATE_BUFFERING && started && player.playWhenReady && System.currentTimeMillis() - seekedAt > 2_000) stalled()
             }
@@ -463,6 +466,20 @@ class PlayerActivity : Screen() {
         toldUnseekable = false
         startMessage = message ?: "Starting · ${s.label}"
         showLoading(startMessage!!)
+        mkvChapters = emptyList()
+        setChapterSnapMode(false)
+        updateMarkers()
+        val sourceUrl = s.url
+        val sourceHeaders = s.headers
+        background({
+            MkvChapters.fetch(sourceUrl, sourceHeaders)
+        }) { r ->
+            val chaps = r.getOrNull()
+            if (!chaps.isNullOrEmpty() && sources.getOrNull(at)?.url == sourceUrl) {
+                mkvChapters = chaps
+                updateMarkers()
+            }
+        }
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true).setDefaultRequestProperties(s.headers)
         val item = MediaItem.Builder().setUri(s.url).apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .setSubtitleConfigurations(listOfNotNull(chosenSub?.let {
@@ -764,7 +781,7 @@ class PlayerActivity : Screen() {
         // The OK that woke the controls: its repeats and release would otherwise press the button it focused.
         // Skip intro: OK jumps past it while the pill shows over the picture (the controls down).
         if (skip.visibility == View.VISIBLE && !shown && down && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) {
-            (skip.tag as? Segment)?.takeIf { canSeek() }?.let { player.seekTo(it.end) }
+            (skip.tag as? IntroSegment)?.takeIf { canSeek() }?.let { player.seekTo(it.endMs) }
             skip.visibility = View.GONE
             wakeKey = event.keyCode
             return true
@@ -775,6 +792,10 @@ class PlayerActivity : Screen() {
         }
         // Back with the controls up closes them; the next Back leaves the player.
         if (shown && event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (chapterSnapMode) {
+                if (!down) setChapterSnapMode(false)
+                return true
+            }
             if (!down) hideControls(force = true)
             return true
         }
@@ -797,12 +818,11 @@ class PlayerActivity : Screen() {
     // an episode's intro, recap and credits are. Inside an intro or recap a "Skip intro" pill shows for 10 s, and OK
     // jumps to its end. The credits start, when known, is when Up next appears, rather than the last 4% guess.
     // ponytail: series with IMDb ids only; anime (AniSkip by MAL id) and films' credits aren't asked for.
-    private class Segment(val label: String, val start: Long, val end: Long)
     private lateinit var skip: TextView
-    private var segments = emptyList<Segment>()
+    private var segments = emptyList<IntroSegment>()
     private var outroAt = 0L
     private var skipShownAt = 0L
-    private val skipped = mutableSetOf<Segment>() // shown once and left alone, or skipped: not offered again this time
+    private val skipped = mutableSetOf<IntroSegment>() // shown once and left alone, or skipped: not offered again this time
     private val skipTask = Runnable { checkSegments() }
 
     private fun fetchSegments() {
@@ -815,16 +835,24 @@ class PlayerActivity : Screen() {
             Triple(part("intro"), part("recap"), part("outro"))
         }) { r ->
             val (intro, recap, outro) = r.getOrNull() ?: return@background
-            segments = listOfNotNull(recap?.let { Segment("Skip recap", it.first, it.second) }, intro?.let { Segment("Skip intro", it.first, it.second) })
+            segments = listOfNotNull(recap?.let { IntroSegment("Skip recap", it.first, it.second) }, intro?.let { IntroSegment("Skip intro", it.first, it.second) })
             outroAt = outro?.first ?: 0L
+            updateMarkers()
         }
+    }
+
+    private fun updateMarkers() {
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        markers = TimelineMarkers.merge(mkvChapters, segments, outroAt, duration)
+        bar.setMarkers(markers)
+        if (shown) updateProgress()
     }
 
     private fun checkSegments() {
         main.removeCallbacks(skipTask)
         if (!started || player.isCurrentMediaItemLive) return run { main.postDelayed(skipTask, 500) }
         val position = player.currentPosition
-        val now = segments.firstOrNull { position >= it.start && position < it.end - 1_000 && it !in skipped }
+        val now = segments.firstOrNull { position >= it.startMs && position < it.endMs - 1_000 && it !in skipped }
         if (now == null || shown) skip.visibility = View.GONE
         else if (skip.tag !== now || skip.visibility != View.VISIBLE) {
             if (skip.tag !== now) skipShownAt = System.currentTimeMillis()
@@ -841,6 +869,7 @@ class PlayerActivity : Screen() {
     // ---------- player controls ----------
     private lateinit var controls: FrameLayout
     private lateinit var bar: SeekBar
+    private lateinit var chapterPill: TextView
     private lateinit var elapsed: TextView
     private lateinit var length: TextView
     private lateinit var playPause: TextView
@@ -857,9 +886,40 @@ class PlayerActivity : Screen() {
     private var shown = false
     private var wakeKey = 0
     private var scrubTo = -1L
+    private var chapterSnapMode = false
+    private var markers = emptyList<Marker>()
+    private var mkvChapters = emptyList<MkvChapter>()
     private val hideTask = Runnable { hideControls() }
     private val progressTask = Runnable { updateProgress() }
     private val seekTask = Runnable { if (scrubTo >= 0) { player.seekTo(scrubTo); scrubTo = -1 } }
+
+    private fun pillBackground(snapMode: Boolean) = GradientDrawable().apply {
+        cornerRadius = dp(12).toFloat()
+        if (snapMode) {
+            setColor(0xE60E0C0A.toInt())
+            setStroke(dp(1), Screen.TUNGSTEN_RIM)
+        } else {
+            setColor(0xCC0E0C0A.toInt())
+        }
+    }
+
+    private fun setChapterSnapMode(enabled: Boolean) {
+        if (chapterSnapMode == enabled) return
+        chapterSnapMode = enabled
+        chapterPill.background = pillBackground(enabled)
+        chapterPill.setTextColor(if (enabled) Screen.TUNGSTEN else Screen.TEXT_2)
+        bar.invalidate()
+        if (enabled) {
+            val current = if (scrubTo >= 0) scrubTo else player.currentPosition
+            val marker = TimelineMarkers.findCurrent(markers, current)
+            if (marker != null) {
+                scrubTo = marker.timeMs
+                updateProgress()
+                main.removeCallbacks(seekTask)
+                main.postDelayed(seekTask, SEEK_SETTLE)
+            }
+        }
+    }
 
     private fun buildControls(): FrameLayout {
         val name = intent.getStringExtra("name").orEmpty()
@@ -880,23 +940,91 @@ class PlayerActivity : Screen() {
         }
 
         trackStatus = text("", SMALL, color = TEXT_2).onArt().apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        chapterPill = text("", SMALL, color = TEXT_2).onArt().apply {
+            setPadding(dp(10), dp(3), dp(10), dp(3))
+            background = pillBackground(false)
+            visibility = View.INVISIBLE
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
         elapsed = text("", SMALL).onArt()
         length = text("", SMALL).onArt()
         bar = SeekBar(this).apply {
             id = View.generateViewId()
             isFocusable = true
             contentDescription = "Seek"
-            setOnFocusChangeListener { _, _ -> invalidate() }
-            setOnClickListener { if (player.playWhenReady) player.pause() else player.play() }
-            setOnKeyListener { _, code, event ->
-                val by = when (code) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> -1
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> 1
-                    else -> return@setOnKeyListener false
+            setOnFocusChangeListener { _, focused ->
+                if (!focused) setChapterSnapMode(false)
+                invalidate()
+            }
+            setOnClickListener {
+                if (chapterSnapMode) {
+                    if (scrubTo >= 0) { player.seekTo(scrubTo); scrubTo = -1 }
+                    setChapterSnapMode(false)
+                } else {
+                    if (player.playWhenReady) player.pause() else player.play()
                 }
-                if (event.action == KeyEvent.ACTION_DOWN)
-                    scrub(by * when { event.repeatCount < 10 -> SKIP; event.repeatCount < 30 -> 30_000L; else -> 60_000L })
-                true
+            }
+            setOnKeyListener { _, code, event ->
+                val current = if (scrubTo >= 0) scrubTo else player.currentPosition
+                if (chapterSnapMode) {
+                    if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                    when (code) {
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            val next = TimelineMarkers.findNext(markers, current)
+                            if (next != null) {
+                                scrubTo = next.timeMs
+                                updateProgress()
+                                main.removeCallbacks(seekTask)
+                                main.postDelayed(seekTask, SEEK_SETTLE)
+                            }
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            val prev = TimelineMarkers.findPrev(markers, current)
+                            if (prev != null) {
+                                scrubTo = prev.timeMs
+                                updateProgress()
+                                main.removeCallbacks(seekTask)
+                                main.postDelayed(seekTask, SEEK_SETTLE)
+                            }
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            setChapterSnapMode(false)
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                            if (scrubTo >= 0) { player.seekTo(scrubTo); scrubTo = -1 }
+                            setChapterSnapMode(false)
+                            true
+                        }
+                        else -> false
+                    }
+                } else {
+                    val by = when (code) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> -1
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> 1
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (event.action == KeyEvent.ACTION_DOWN && markers.isNotEmpty()) {
+                                setChapterSnapMode(true)
+                                return@setOnKeyListener true
+                            }
+                            return@setOnKeyListener false
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            if (scrubTo >= 0) {
+                                scrubTo = -1
+                                updateProgress()
+                            }
+                            return@setOnKeyListener false
+                        }
+                        else -> return@setOnKeyListener false
+                    }
+                    if (event.action == KeyEvent.ACTION_DOWN)
+                        scrub(by * when { event.repeatCount < 10 -> SKIP; event.repeatCount < 30 -> 30_000L; else -> 60_000L })
+                    true
+                }
             }
         }
 
@@ -959,6 +1087,9 @@ class PlayerActivity : Screen() {
             })
             addView(pauseInfo, FrameLayout.LayoutParams(dp(520), -2, Gravity.BOTTOM or Gravity.START).apply {
                 leftMargin = dp(PAD); bottomMargin = dp(148)
+            })
+            addView(chapterPill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(PAD); bottomMargin = dp(137)
             })
             addView(bar, FrameLayout.LayoutParams(-1, dp(24), Gravity.BOTTOM).apply {
                 leftMargin = dp(PAD); rightMargin = dp(PAD); bottomMargin = dp(111)
@@ -1046,6 +1177,8 @@ class PlayerActivity : Screen() {
 
     private fun hideControls(force: Boolean = false) {
         if (!force && !player.playWhenReady) return
+        setChapterSnapMode(false)
+        chapterPill.visibility = View.INVISIBLE
         shown = false
         main.removeCallbacks(hideTask)
         main.removeCallbacks(progressTask)
@@ -1067,6 +1200,21 @@ class PlayerActivity : Screen() {
             bar.set(position, player.bufferedPosition, if (live) 0L else duration)
             elapsed.text = if (live) "Live" else clock(position)
             length.text = if (live || duration <= 0) "" else "−${clock((duration - position).coerceAtLeast(0))}"
+            val active = TimelineMarkers.findCurrent(markers, position)
+            if ((bar.isFocused || scrubTo >= 0 || chapterSnapMode) && active != null && !live) {
+                chapterPill.text = active.title
+                chapterPill.visibility = View.VISIBLE
+                val knob = dp(if (bar.isFocused) 9 else 6).toFloat()
+                val barWidth = bar.width.takeIf { it > 0 } ?: (controls.width - 2 * dp(PAD))
+                val knobX = knob + (barWidth - 2 * knob) * (if (duration > 0) position.coerceIn(0, duration) / duration.toFloat() else 0f)
+                chapterPill.post {
+                    val pillWidth = chapterPill.width
+                    val targetX = (knobX - pillWidth / 2f).coerceIn(0f, (barWidth - pillWidth).toFloat().coerceAtLeast(0f))
+                    chapterPill.translationX = targetX
+                }
+            } else {
+                chapterPill.visibility = View.INVISIBLE
+            }
         }
         if (options.visibility == View.VISIBLE) {
             optionsBar.set(position, player.bufferedPosition, if (live) 0L else duration)
@@ -1359,6 +1507,7 @@ private class SeekBar(context: Context) : View(context) {
     private var position = 0L
     private var buffered = 0L
     private var duration = 0L
+    private var markers = emptyList<Marker>()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = context.resources.displayMetrics.density
 
@@ -1368,6 +1517,11 @@ private class SeekBar(context: Context) : View(context) {
         this.position = position
         this.buffered = buffered
         this.duration = duration
+        invalidate()
+    }
+
+    fun setMarkers(markers: List<Marker>) {
+        this.markers = markers
         invalidate()
     }
 
@@ -1382,10 +1536,36 @@ private class SeekBar(context: Context) : View(context) {
         }
         // A light track: the dark one vanished over a dark picture.
         stretch(width - knob, 0x40F3EEE6)
+
+        // Tint spans for Intro / Recap if present
+        if (duration > 0) {
+            paint.color = 0x33F3D9B1.toInt()
+            for (m in markers) {
+                if (m.endMs != null && m.endMs > m.timeMs) {
+                    val x1 = x(m.timeMs)
+                    val x2 = x(m.endMs)
+                    if (x2 > x1) canvas.drawRect(x1, y - line / 2, x2, y + line / 2, paint)
+                }
+            }
+        }
+
         stretch(x(buffered), 0x73F3EEE6)
         paint.setShadowLayer(4 * d, 0f, 0f, Screen.TUNGSTEN_GLOW)
         stretch(x(position), Screen.TUNGSTEN)
         paint.clearShadowLayer()
+
+        // 2 dp gap/tick cutouts for markers
+        if (duration > 0) {
+            val gapHalf = 1f * d
+            paint.color = 0xFF0E0C0A.toInt()
+            for (m in markers) {
+                if (m.timeMs > 0 && m.timeMs < duration) {
+                    val mx = x(m.timeMs)
+                    canvas.drawRect(mx - gapHalf, y - line / 2 - 1f, mx + gapHalf, y + line / 2 + 1f, paint)
+                }
+            }
+        }
+
         paint.color = Screen.TEXT
         if (duration > 0) canvas.drawCircle(x(position), y, knob, paint)
     }
