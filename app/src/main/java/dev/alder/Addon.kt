@@ -241,6 +241,8 @@ class Meta(json: JSONObject) {
     } ?: emptyList()
     val cast: List<String> = castMembers.map { it.name }
     val info = listOfNotNull(year, runtime, genres.joinToString(" · ").ifEmpty { null }).joinToString("   ")
+    val trailerStreams: List<Stream> = parseTrailerStreams(json)
+    val trailerYtId: String? = parseTrailerYtId(json)
 
     /** Episodes in play order: by season then episode, specials (season 0) last. */
     val videos: List<Video> = json.optJSONArray("videos").objects()
@@ -503,3 +505,86 @@ internal fun freshConfigureUrl(base: String): String {
     val path = base.substring(slash).split('/').filter { seg -> seg.isNotEmpty() && seg.length < 24 && seg.none { it in "=|%," } }
     return base.substring(0, slash) + path.joinToString("") { "/$it" } + "/configure"
 }
+
+/** Direct playable trailer URLs from a metadata add-on's `trailerStreams`. */
+internal fun parseTrailerStreams(json: JSONObject): List<Stream> =
+    json.optJSONArray("trailerStreams")?.objects()?.mapNotNull { item ->
+        val url = item.text("url") ?: return@mapNotNull null
+        val title = item.text("title")?.takeIf { it.isNotBlank() } ?: "Trailer"
+        Stream(title, "", url, emptyMap(), 0L, null, null)
+    }.orEmpty()
+
+/** The official YouTube trailer ID from `trailerStreams` or `trailers` (Cinemeta and AIOMetadata). */
+internal fun parseTrailerYtId(json: JSONObject): String? =
+    json.optJSONArray("trailerStreams")?.objects()?.firstNotNullOfOrNull { it.text("ytId") }
+        ?: json.optJSONArray("trailers")?.objects()
+            ?.sortedBy { if (it.text("type").equals("Trailer", ignoreCase = true)) 0 else 1 }
+            ?.firstNotNullOfOrNull { it.text("source") ?: it.text("ytId") }
+
+internal fun trailerNodePriority(type: String, name: String): Int = when {
+    type.equals("Trailer", ignoreCase = true) -> 0
+    name.contains("trailer", ignoreCase = true) -> 1
+    else -> 2
+}
+
+internal fun orderTrailerStreams(videoTitle: String, playbackUrls: List<Pair<String, String>>): List<Stream> {
+    val title = videoTitle.ifBlank { "Trailer" }
+    val rankOrder = listOf("1080p", "auto", "720p", "480p", "sd")
+    return playbackUrls
+        .filter { it.second.isNotBlank() }
+        .sortedBy { (quality, _) ->
+            rankOrder.indexOf(quality.lowercase()).let { if (it >= 0) it else rankOrder.size }
+        }
+        .distinctBy { it.second }
+        .map { (quality, url) ->
+            val label = if (quality.isNotBlank() && !quality.equals("AUTO", ignoreCase = true)) "$title ($quality)" else title
+            Stream(label, quality, url, emptyMap(), 0L, null, null)
+        }
+}
+
+/**
+ * Direct MP4 and HLS trailer streams from IMDb's `primaryVideos` response, preferring official trailers over clips and
+ * ordering stream qualities from 1080p and adaptive HLS down to SD so ExoPlayer can fall back if one fails.
+ */
+internal fun parseImdbTrailerStreams(json: JSONObject): List<Stream> {
+    val edges = json.optJSONObject("data")?.optJSONObject("title")
+        ?.optJSONObject("primaryVideos")?.optJSONArray("edges")?.objects().orEmpty()
+    val nodes = edges.mapNotNull { it.optJSONObject("node") }.filter { node ->
+        node.optJSONArray("playbackURLs")?.objects()?.any { it.text("url") != null } == true
+    }
+    val bestNode = nodes.minByOrNull { node ->
+        val type = node.optJSONObject("contentType")?.optJSONObject("displayName")?.text("value").orEmpty()
+        val name = node.optJSONObject("name")?.text("value").orEmpty()
+        trailerNodePriority(type, name)
+    } ?: return emptyList()
+    val videoTitle = bestNode.optJSONObject("name")?.text("value") ?: "Trailer"
+    val urls = bestNode.optJSONArray("playbackURLs")?.objects().orEmpty()
+        .mapNotNull { u ->
+            val url = u.text("url") ?: return@mapNotNull null
+            val quality = u.optJSONObject("displayName")?.text("value")
+                ?: u.text("videoMimeType") ?: ""
+            quality to url
+        }
+    return orderTrailerStreams(videoTitle, urls)
+}
+
+private val imdbTrailerCache = java.util.concurrent.ConcurrentHashMap<String, List<Stream>>()
+
+internal fun imdbTrailerStreams(imdbId: String): List<Stream> {
+    if (!imdbId.startsWith("tt")) return emptyList()
+    imdbTrailerCache[imdbId]?.let { return it }
+    return runCatching {
+        val query = JSONObject().put(
+            "query",
+            "{title(id:\"$imdbId\"){primaryVideos(first:5){edges{node{id name{value}contentType{displayName{value}}playbackURLs{displayName{value}url videoMimeType}}}}}}"
+        ).toString()
+        val raw = Http.post(
+            "https://api.graphql.imdb.com/",
+            query,
+            timeoutMs = 5_000,
+            headers = mapOf("x-imdb-client-name" to "imdb-web-next-localized")
+        )
+        parseImdbTrailerStreams(JSONObject(raw)).also { imdbTrailerCache[imdbId] = it }
+    }.getOrDefault(emptyList())
+}
+

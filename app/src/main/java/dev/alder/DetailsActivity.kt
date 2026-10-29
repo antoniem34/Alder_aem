@@ -107,6 +107,8 @@ class DetailsActivity : Screen() {
     private var item: JSONObject? = null // the title's library item: progress and whether it's in My List
     private var itemChangedHere = false
     private var similarRequested = false
+    private var imdbTrailers: List<Stream> = emptyList()
+    private var trailerRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,6 +149,17 @@ class DetailsActivity : Screen() {
             if (type == "series" && m.videos.isNotEmpty()) buildGuide(m.videos)
             if (type == "movie" && !similarRequested) { similarRequested = true; loadSimilar() }
             loadRichCast()
+            if (!trailerRequested && m.id.startsWith("tt")) {
+                trailerRequested = true
+                background({ imdbTrailerStreams(m.id) }) { r ->
+                    val resolved = r.getOrDefault(emptyList())
+                    if (resolved.isNotEmpty()) {
+                        val hadTrailer = m.trailerStreams.isNotEmpty() || m.trailerYtId != null || imdbTrailers.isNotEmpty()
+                        imdbTrailers = resolved
+                        if (!hadTrailer && !guideOpen && !infoOpen && !similarOpen && !filmographyOpen) showHero(meta)
+                    }
+                }
+            }
         }
         background({
             (Stremio.savedAddons(key) ?: Stremio.addons(key)).savedMeta(type, metaId) to Stremio.savedLibrary(key)?.firstOrNull { it.optString("_id") == metaId }
@@ -273,6 +286,8 @@ class DetailsActivity : Screen() {
             else -> null
         }
 
+        val hasTrailer = m.trailerStreams.isNotEmpty() || m.trailerYtId != null || imdbTrailers.isNotEmpty()
+
         if (type == "series" && unairedNext != null) {
             val airDate = airDateLabel(unairedNext.released)?.removePrefix("Airs ")
                 ?: episodeDate(unairedNext.released)?.replace(Regex(" \\d{4}$"), "")
@@ -286,11 +301,13 @@ class DetailsActivity : Screen() {
             playButton = pill("Episodes").apply {
                 setOnClickListener { showGuide() }
             }
+            val trailerButton = if (hasTrailer) trailerPill { playTrailer(m) } else null
             infoButton = iconButton("ⓘ", "More information") { showInfo() }
             listButton = iconButton(if (Library.inList(item)) "✓" else "+", "My List") { toggleList() }
             stack.addView(LinearLayout(this).apply {
                 clipChildren = false
-                addView(playButton, wrap().apply { marginEnd = dp(14) })
+                addView(playButton, wrap().apply { marginEnd = dp(if (trailerButton != null) 10 else 14) })
+                trailerButton?.let { addView(it, wrap().apply { marginEnd = dp(10) }) }
                 addView(listButton, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) })
                 addView(infoButton)
             }, wrap().apply { topMargin = dp(16) })
@@ -310,6 +327,7 @@ class DetailsActivity : Screen() {
             // Held OK: every source, to choose one by hand.
             setOnLongClickListener { openSources(target?.first ?: metaId, startOver = false, pick = true); true }
         }
+        val trailerButton = if (hasTrailer) trailerPill { playTrailer(m) } else null
         val startOver = if (resumeAt > 0) iconButton("↺", "Start over") {
             openSources(target?.first ?: metaId, startOver = true)
         } else null
@@ -317,13 +335,27 @@ class DetailsActivity : Screen() {
         listButton = iconButton(if (Library.inList(item)) "✓" else "+", "My List") { toggleList() }
         buttonRow = LinearLayout(this).apply {
             clipChildren = false
-            addView(playButton, wrap().apply { marginEnd = dp(14) })
+            addView(playButton, wrap().apply { marginEnd = dp(if (trailerButton != null) 10 else 14) })
+            trailerButton?.let { addView(it, wrap().apply { marginEnd = dp(10) }) }
             startOver?.let { addView(it, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) }) }
             addView(listButton, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(8) })
             addView(infoButton)
         }
         stack.addView(buttonRow, wrap().apply { topMargin = dp(16) })
         playButton.post { if (!guideOpen && !infoOpen && !similarOpen && !filmographyOpen) playButton.requestFocus() }
+    }
+
+    private fun trailerPill(action: () -> Unit) = text("▷  Trailer", SMALL, bold = true).apply {
+        isFocusable = true
+        gravity = Gravity.CENTER
+        minHeight = dp(BUTTON_H)
+        setPadding(dp(14), 0, dp(16), 0)
+        background = glass(BUTTON_H / 2)
+        setOnFocusChangeListener { v, has ->
+            v.background = glass(BUTTON_H / 2, has)
+            v.grow(has, CHIP_GROW).start()
+        }
+        setOnClickListener { action() }
     }
 
     private fun iconButton(symbol: String, description: String, action: () -> Unit) = text(symbol, 18f).apply {
@@ -1266,6 +1298,59 @@ class DetailsActivity : Screen() {
         resolvingStreams?.cancel()
         resolvingStreams = null
         if (::loadingView.isInitialized) loadingView.visibility = View.GONE
+    }
+
+    private fun playTrailer(m: Meta) {
+        if (resolvingStreams != null) return
+        val ready = m.trailerStreams + imdbTrailers
+        if (ready.isNotEmpty()) {
+            startTrailerPlayer(m, ready)
+            return
+        }
+        if (!m.id.startsWith("tt")) {
+            openExternalTrailer(m.trailerYtId)
+            return
+        }
+        var canceled = false
+        resolvingStreams = object : Cancellable { override fun cancel() { canceled = true } }
+        loadingStatus.text = "Loading trailer…"
+        loadingView.visibility = View.VISIBLE
+        loadingView.bringToFront()
+        background({ imdbTrailerStreams(m.id) }) { result ->
+            if (canceled) return@background
+            cancelStreamResolution()
+            val streams = result.getOrDefault(emptyList())
+            if (streams.isNotEmpty()) {
+                imdbTrailers = streams
+                startTrailerPlayer(m, streams)
+            } else {
+                openExternalTrailer(m.trailerYtId)
+            }
+        }
+    }
+
+    private fun startTrailerPlayer(m: Meta, streams: List<Stream>) {
+        startActivity(Intent(this, PlayerActivity::class.java)
+            .putExtra("type", type)
+            .putExtra("id", metaId)
+            .putExtra("videoId", "$metaId:trailer")
+            .putExtra("name", m.name.ifBlank { name })
+            .putExtra("poster", m.poster ?: poster)
+            .putExtra("background", m.background)
+            .putExtra("logo", m.logo)
+            .putExtra("isTrailer", true)
+            .putExtra("trailerYtId", m.trailerYtId)
+            .putExtra("sources", org.json.JSONArray(streams.map { it.toJson() }).toString()))
+    }
+
+    private fun openExternalTrailer(ytId: String?) {
+        val id = ytId?.takeIf { it.isNotBlank() } ?: return
+        val opened = runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("vnd.youtube:$id")))
+        }.isSuccess
+        if (!opened) runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=$id")))
+        }
     }
 
     private fun openSources(videoId: String, startOver: Boolean, next: String? = null, label: String? = null, pick: Boolean = false) {

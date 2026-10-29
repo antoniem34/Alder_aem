@@ -324,4 +324,28 @@ class ScreenDesignTest {
         assertEquals("+0.50 s  later", formatTiming(500L))
         assertEquals("+2.50 s  later", formatTiming(2500L))
     }
+
+    @Test fun trailerStreamsAndYoutubeIdsParseFromMetadataAndImdb() {
+        assertEquals(0, trailerNodePriority("Trailer", "Clip 1"))
+        assertEquals(1, trailerNodePriority("Clip", "Official Trailer"))
+        assertEquals(2, trailerNodePriority("Clip", "Behind the Scenes"))
+
+        val ordered = orderTrailerStreams(
+            "Official Trailer",
+            listOf(
+                "480p" to "https://cdn.example/t480.mp4",
+                "1080p" to "https://cdn.example/t1080.mp4",
+                "AUTO" to "https://cdn.example/master.m3u8",
+                "1080p" to "https://cdn.example/t1080.mp4"
+            )
+        )
+        assertEquals(
+            listOf("https://cdn.example/t1080.mp4", "https://cdn.example/master.m3u8", "https://cdn.example/t480.mp4"),
+            ordered.map { it.url }
+        )
+        assertEquals(
+            listOf("Official Trailer (1080p)", "Official Trailer", "Official Trailer (480p)"),
+            ordered.map { it.title }
+        )
+    }
 }
