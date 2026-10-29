@@ -424,6 +424,23 @@ abstract class Screen : Activity() {
         if (fraction != null) progress = (fraction * max).toInt()
     }
 
+    /** On-screen progress overlay: dark veil with a tungsten ring and status message in the center. */
+    protected fun loadingOverlay(statusText: String = "Finding sources…"): Pair<FrameLayout, TextView> {
+        val label = text(statusText, BODY, color = TEXT_2).onArt()
+        val veil = FrameLayout(this).apply {
+            visibility = View.GONE
+            isFocusable = true
+            isClickable = true
+            addView(View(context).apply { setBackgroundColor(0x800E0C0A.toInt()) }, FrameLayout.LayoutParams(-1, -1))
+            val center = column(Gravity.CENTER_HORIZONTAL).apply {
+                addView(ring(), LinearLayout.LayoutParams(dp(40), dp(40)))
+                addView(label, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(12) })
+            }
+            addView(center, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        }
+        return veil to label
+    }
+
     /** One list-row focus treatment across settings, episodes, sources and menus. */
     protected fun View.rowFocus(radiusDp: Int = 8, rest: () -> android.graphics.drawable.Drawable? = { null }, also: (Boolean) -> Unit = {}) {
         isFocusable = true
@@ -730,7 +747,7 @@ abstract class Screen : Activity() {
         const val GLASS_HIGHLIGHT = 0x4DFFF5E6
         const val ROW_FOCUSED = 0x29F3EEE6
         const val PROGRESS_TRACK = 0x4DFFFFFF // light enough that a short fill still reads as a bar, not a dash
-        private val pool = Executors.newFixedThreadPool(6)
+        internal val pool = Executors.newFixedThreadPool(6)
     }
 }
 

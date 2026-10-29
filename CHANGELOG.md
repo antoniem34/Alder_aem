@@ -16,9 +16,39 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 
 ## Unreleased
 
+### New
+- **Trailers on the title page.** Select **▷ Trailer** on a movie or show to play its trailer. Alder does not add trailers to your watch history.
+- **Chapter markers and chapter snap.** See chapter marks and intro marks on the progress bar. Press Up on the bar to jump between chapters.
+- **Directors and cast.** See directors and lead actors on the title screen. Select a person to see their other works. A label shows the title and year of the focused poster. Select **ⓘ** to see the full story and all cast members with portraits.
+- **Clear dialogue.** Turn on **Settings → Clear dialogue** to boost voices above music and loud effects on TV speakers. You can also turn it on while you watch.
+- **Foreign audio subtitles.** Alder can start subtitles automatically only when the audio is in a different language. Select **Settings → Subtitles → Foreign audio only**.
+- **Still watching?** If you do not press a remote button for 3 episodes, Alder stops before the next episode. Select **Play** or **Exit to Home**.
+- **Sleep timer.** In the player, select **Audio & subtitles**, then select **Sleep**. Choose **After this episode** or **In 60 min**.
+- **Mark episodes as watched.** Hold OK on an episode in the episode guide. Select **Mark as watched**, **Mark as unwatched**, or **Mark previous episodes watched**. Hold OK on a season button to mark all episodes of that season.
+- **New episode tags.** A tungsten tag shows on Continue Watching when a new episode is available.
+- **Protect unreleased episodes.** Alder shows the air date for future episodes and disables playback until they air.
+- **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
+- **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
+- **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.
+- **Hide rows.** Hold OK on a title in a row, then select **Hide row**. To put it back, select **Settings → Profile → Hidden rows**.
+- **Live TV and sport.** If your add-ons have TV channels, sport or events, select **Live** at the top. Select a channel to play it. To choose a source, hold OK.
+- **30 GB file limit.** Select **30 GB** in **Settings → Largest file**.
+- **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
+
+### Easier to use
+- **Live subtitle sync.** Adjust subtitle timing with Left and Right while the video plays. This works for embedded subtitles and add-on subtitles.
+- **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
+- **Close player controls.** Press Back to close the controls while the video plays. Press Back again to leave the player.
+- **Exact subtitle remembered.** When you play a video again, Alder uses the exact subtitle track that you selected before.
+- **Update notification dot.** A dot on your profile avatar shows when a new version of Alder is ready.
+- **Install an update from the profile menu.** Select your profile avatar, then select **Install update**.
+- **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
+
 ### Fixes
 - **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
 - **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.
+- **Cleaner player controls.** The audio and subtitle status now sits in the pause details instead of above the Play button.
+- **Back button on Android 16.** The Back button closes panels and player controls correctly on Android 16.
 
 ## 1.2
 

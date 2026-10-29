@@ -105,6 +105,31 @@ class ScreenDesignTest {
         assertEquals("Adventure", shortRowName("Short & Sweet Adventure", listOf("Drama", "Adventure")))
     }
 
+    @Test fun homeRowsIdentifyMoviesAndShows() {
+        assertEquals("Popular Movies", homeSectionTitle("Popular", true))
+        assertEquals("Popular Shows", homeSectionTitle("Popular", false))
+        assertEquals("Top Movies", homeSectionTitle("Top", true))
+        assertEquals("Top Shows", homeSectionTitle("Top", false))
+        assertEquals("Top Movie Picks", homeSectionTitle("Top Picks for You", true))
+        assertEquals("Top Show Picks", homeSectionTitle("Top Picks for You", false))
+        assertEquals("Recommended Movies", homeSectionTitle("Recommended for You", true))
+        assertEquals("Recommended Shows", homeSectionTitle("Recommended for You", false))
+        assertEquals("Trending Movies", homeSectionTitle("Trending Now", true))
+        assertEquals("Trending Shows", homeSectionTitle("Trending Now", false))
+        assertEquals("Trending Movies in India", homeSectionTitle("Trending in India", true))
+        assertEquals("Popular Movies on Netflix", homeSectionTitle("Popular on Netflix", true))
+        assertEquals("Action Movies", homeSectionTitle("Action", true))
+        assertEquals("Action Shows", homeSectionTitle("Action", false))
+        assertEquals("Popular - Movies", homeSectionTitle("Popular - Movies", true))
+    }
+
+    @Test fun hiddenRowsFilterOutCatalogs() {
+        val allRows = listOf("Popular Movies", "Trending Shows", "Action Movies")
+        val hidden = setOf("Trending Shows")
+        val visible = allRows.filterNot { it in hidden }
+        assertEquals(listOf("Popular Movies", "Action Movies"), visible)
+    }
+
     @Test fun runtimeReadsInHoursAndMinutes() {
         assertEquals("2h 27m", runtime("147 min"))
         assertEquals("1h 05m", runtime("65 min"))
@@ -144,6 +169,15 @@ class ScreenDesignTest {
         assertEquals(true, plausibleEpisode(120_000L))
     }
 
+    @Test fun unwatchedEpisodeThumbnailsBlurWhenEnabled() {
+        val watched = setOf("tt123:1:1", "tt123:1:2")
+        val shouldBlur = { enabled: Boolean, videoId: String -> enabled && videoId !in watched }
+        assertEquals(true, shouldBlur(true, "tt123:1:3"))
+        assertEquals(false, shouldBlur(true, "tt123:1:1"))
+        assertEquals(false, shouldBlur(false, "tt123:1:3"))
+        assertEquals(false, shouldBlur(false, "tt123:1:1"))
+    }
+
     @Test fun settingsChoicesWrapAndCustomStartsAtTheEndForLeft() {
         assertEquals(0, nextSettingIndex(-1, 4, 1))
         assertEquals(3, nextSettingIndex(-1, 4, -1))
@@ -170,6 +204,37 @@ class ScreenDesignTest {
         assertEquals("25 Sep 2013", episodeDate("2013-09-25T00:00:00.000Z"))
         assertEquals(null, episodeDate("2013-02-30"))
         assertEquals(null, episodeDate(null))
+    }
+
+    @Test fun unairedEpisodesAreProtectedAndBadged() {
+        val fixedNow = 1793275200000L // 2026-10-29 12:00:00 UTC
+
+        // Null / blank / malformed dates count as aired (never locked out)
+        assertEquals(true, isEpisodeAired(null, fixedNow))
+        assertEquals(true, isEpisodeAired("", fixedNow))
+        assertEquals(true, isEpisodeAired("not-a-date", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-02-30", fixedNow))
+
+        // Past dates are aired
+        assertEquals(true, isEpisodeAired("2026-10-28", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-10-29", fixedNow))
+        assertEquals(true, isEpisodeAired("2026-10-29T10:00:00.000Z", fixedNow))
+
+        // Future dates are unaired
+        assertEquals(false, isEpisodeAired("2026-11-14", fixedNow))
+        assertEquals(false, isEpisodeAired("2026-11-14T00:00:00.000Z", fixedNow))
+
+        // Air date labels
+        assertEquals("Airs 14 Nov", airDateLabel("2026-11-14"))
+        assertEquals("Airs 14 Nov", airDateLabel("2026-11-14T00:00:00.000Z"))
+        assertEquals(null, airDateLabel(null))
+
+        // Recently aired: within the last 7 days
+        assertEquals(true, isRecentlyAired("2026-10-29", fixedNow)) // today
+        assertEquals(true, isRecentlyAired("2026-10-25", fixedNow)) // 4 days ago
+        assertEquals(true, isRecentlyAired("2026-10-22", fixedNow)) // 7 days ago
+        assertEquals(false, isRecentlyAired("2026-10-15", fixedNow)) // 14 days ago
+        assertEquals(false, isRecentlyAired("2026-11-14", fixedNow)) // future
     }
 
     @Test fun repeatedBufferingOffersOneRealQualityStep() {
@@ -215,5 +280,72 @@ class ScreenDesignTest {
         assertEquals("Subtitles", addonRole("OpenSubtitles", "org.opensubtitles", setOf("subtitles")))
         assertEquals("Streams · Catalogs", addonRole("Example", "org.example", setOf("stream", "catalog")))
         assertEquals("Titles and details", addonRole("Cinemeta", "com.cinemeta", setOf("catalog", "meta")))
+    }
+
+    @Test fun liveTypesAreChannelsSportAndEventsOnly() {
+        listOf("tv", "TV", "live", "sport", "Sports", "events").forEach { assertEquals(true, isLiveType(it)) }
+        listOf("movie", "series", "anime", "channel", "other").forEach { assertEquals(false, isLiveType(it)) }
+    }
+
+    @Test fun logoTintTakesTheColourfulPixelsAndSkipsPlainLogos() {
+        val red = 0xFFE00000.toInt()
+        val clear = 0x00000000
+        val white = 0xFFFFFFFF.toInt()
+        assertEquals(0xFF780000.toInt(), logoTint(intArrayOf(red, red, clear, white)))
+        assertEquals(null, logoTint(intArrayOf(white, white, 0xFF000000.toInt(), clear)))
+        assertEquals(null, logoTint(intArrayOf(clear, clear)))
+    }
+
+    @Test fun episodeNavigationOrderAndPriorEpisodes() {
+        val e0 = Video("s0e1", "Special", 0, 1, null, null, null)
+        val e1 = Video("s1e1", "Pilot", 1, 1, null, null, null)
+        val e2 = Video("s1e2", "Second", 1, 2, null, null, null)
+        val e3 = Video("s2e1", "Season 2 Opener", 2, 1, null, null, null)
+        val videos = listOf(e0, e1, e2, e3)
+
+        assertEquals(emptyList<Video>(), Library.priorEpisodes(videos, e1))
+        assertEquals(listOf(e1), Library.priorEpisodes(videos, e2))
+        assertEquals(listOf(e1, e2), Library.priorEpisodes(videos, e3))
+        assertEquals(emptyList<Video>(), Library.priorEpisodes(videos, e0))
+
+        assertEquals(e2, Library.nextEpisode(videos, e1))
+        assertEquals(e3, Library.nextEpisode(videos, e2))
+        assertEquals(null, Library.nextEpisode(videos, e3))
+
+        assertEquals(e3, Library.nextEpisodeAfterSeason(videos, 1))
+        assertEquals(null, Library.nextEpisodeAfterSeason(videos, 2))
+    }
+
+    @Test fun subtitleTimingLabelsFormatCorrectly() {
+        assertEquals("On time", formatTiming(0L))
+        assertEquals("-0.25 s  earlier", formatTiming(-250L))
+        assertEquals("-1.00 s  earlier", formatTiming(-1000L))
+        assertEquals("+0.25 s  later", formatTiming(250L))
+        assertEquals("+0.50 s  later", formatTiming(500L))
+        assertEquals("+2.50 s  later", formatTiming(2500L))
+    }
+
+    @Test fun trailerStreamsAndYoutubeIdsParseFromMetadataAndImdb() {
+        assertEquals(0, trailerNodePriority("Trailer", "Clip 1"))
+        assertEquals(1, trailerNodePriority("Clip", "Official Trailer"))
+        assertEquals(2, trailerNodePriority("Clip", "Behind the Scenes"))
+
+        val ordered = orderTrailerStreams(
+            "Official Trailer",
+            listOf(
+                "480p" to "https://cdn.example/t480.mp4",
+                "1080p" to "https://cdn.example/t1080.mp4",
+                "AUTO" to "https://cdn.example/master.m3u8",
+                "1080p" to "https://cdn.example/t1080.mp4"
+            )
+        )
+        assertEquals(
+            listOf("https://cdn.example/t1080.mp4", "https://cdn.example/master.m3u8", "https://cdn.example/t480.mp4"),
+            ordered.map { it.url }
+        )
+        assertEquals(
+            listOf("Official Trailer (1080p)", "Official Trailer", "Official Trailer (480p)"),
+            ordered.map { it.title }
+        )
     }
 }

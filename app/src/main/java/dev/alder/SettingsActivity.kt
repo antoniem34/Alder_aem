@@ -41,33 +41,71 @@ object Settings {
     fun hidden(c: Context) = runCatching { org.json.JSONObject(prefs(c).getString(profileKey(c, "hidden"), null)!!) }
         .getOrDefault(org.json.JSONObject())
     fun setHidden(c: Context, all: org.json.JSONObject) = prefs(c).edit().putString(profileKey(c, "hidden"), all.toString()).apply()
+    fun blurThumbnails(c: Context) = prefs(c).getBoolean(profileKey(c, "blurThumbnails"), prefs(c).getBoolean("blurThumbnails", false))
+    fun hiddenRows(c: Context): Set<String> = prefs(c).getStringSet(profileKey(c, "hiddenRows"), emptySet()) ?: emptySet()
+    fun hideRow(c: Context, rowTitle: String) {
+        val current = hiddenRows(c).toMutableSet()
+        current.add(rowTitle)
+        prefs(c).edit().putStringSet(profileKey(c, "hiddenRows"), current).apply()
+    }
+    fun unhideRow(c: Context, rowTitle: String) {
+        val current = hiddenRows(c).toMutableSet()
+        current.remove(rowTitle)
+        prefs(c).edit().putStringSet(profileKey(c, "hiddenRows"), current).apply()
+    }
+    fun startTab(c: Context) = prefs(c).getString(profileKey(c, "startTab"), "home").orEmpty()
+    fun showMovies(c: Context) = prefs(c).getBoolean(profileKey(c, "showMovies"), true)
+    fun showShows(c: Context) = prefs(c).getBoolean(profileKey(c, "showShows"), true)
+    fun showLive(c: Context) = prefs(c).getBoolean(profileKey(c, "showLive"), true)
+    fun featuredHome(c: Context) = prefs(c).getBoolean(profileKey(c, "featuredHome"), false)
     /** A removed profile's taste goes with it, so a new profile in its place starts with none. */
     fun forget(c: Context, profileId: String) = prefs(c).edit().apply {
-        listOf("release", "dub", "audioLang", "subLang", "hidden").forEach { remove("$it@$profileId") }
+        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showLive", "featuredHome").forEach { remove("$it@$profileId") }
         prefs(c).all.keys.filter { it.startsWith("title:") && it.endsWith("@$profileId") }.forEach(::remove)
     }.apply()
 
     /**
      * What the viewer picked in the player's Audio & subtitles for one title (a series' episodes share it), so the next
      * episode and a resume start the same way. Language codes; subtitles "" is Off; null where nothing was picked.
+     * [subtitle]: the exact subtitle picked for video [subtitleVideo] ("addon:<url>" or "file:<track id>"), as Stremio
+     * keeps it per video.
      */
-    class TitleChoice(val audio: String?, val subtitles: String?)
+    class TitleChoice(val audio: String?, val subtitles: String?, val subtitleVideo: String? = null, val subtitle: String? = null)
 
     fun titleChoice(c: Context, metaId: String): TitleChoice? = prefs(c).getString(profileKey(c, "title:$metaId"), null)
         ?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
-        ?.let { TitleChoice(it.text("audio"), if (it.has("subtitles")) it.optString("subtitles") else null) }
+        ?.let { TitleChoice(it.text("audio"), if (it.has("subtitles")) it.optString("subtitles") else null,
+            it.text("subtitleVideo"), it.text("subtitle")) }
 
-    fun pickedInPlayer(c: Context, metaId: String, audio: String? = null, subtitles: String? = null) {
+    fun pickedInPlayer(c: Context, metaId: String, audio: String? = null, subtitles: String? = null,
+                       video: String? = null, subtitle: String? = null) {
         val key = profileKey(c, "title:$metaId")
         val json = prefs(c).getString(key, null)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: org.json.JSONObject()
         audio?.let { json.put("audio", it) }
         subtitles?.let { json.put("subtitles", it) }
+        video?.let { json.put("subtitleVideo", it).put("subtitle", subtitle.orEmpty()) }
         prefs(c).edit().putString(key, json.toString()).apply()
     }
     fun alwaysList(c: Context) = prefs(c).getBoolean("alwaysList", false)
     fun matchFrameRate(c: Context) = prefs(c).getBoolean("matchFrameRate", true)
     fun passthrough(c: Context) = prefs(c).getBoolean("passthrough", false)
-    fun subtitles(c: Context) = prefs(c).getBoolean("subtitles", true)
+    fun clearDialogue(c: Context) = prefs(c).getBoolean("clearDialogue", false)
+    fun setClearDialogue(c: Context, on: Boolean) = prefs(c).edit().putBoolean("clearDialogue", on).apply()
+    /** "on", "foreign" (only when audio differs or forced), "off". Migrates old Boolean "subtitles". */
+    fun subPref(c: Context): String {
+        val p = prefs(c)
+        val key = profileKey(c, "subPref")
+        val oldKey = "subtitles"
+        if (!p.contains(key)) {
+            val fallback = if (p.contains(oldKey)) {
+                val oldBool = runCatching { p.getBoolean(oldKey, true) }.getOrDefault(true)
+                if (oldBool) "on" else "off"
+            } else "on"
+            p.edit().putString(key, fallback).remove(oldKey).apply()
+        }
+        return p.getString(key, "on").orEmpty().ifEmpty { "on" }
+    }
+    fun subtitles(c: Context) = subPref(c) != "off"
     /** Two-letter code of the dub to start with: the TV's language unless one is picked. */
     fun audioLanguage(c: Context): String = prefs(c).getString(profileKey(c, "audioLang"), prefs(c).getString("audioLang", ""))
         .orEmpty().ifEmpty { Languages.code(Locale.getDefault().toLanguageTag()) ?: "en" }
@@ -154,7 +192,7 @@ class SettingsActivity : Screen() {
         Choice("maxHeight", "Highest quality", "Releases above this are skipped when picking a source.",
             listOf(0 to "No limit", 2160 to "4K", 1080 to "1080p", 720 to "720p")),
         Choice("maxSizeGb", "Largest file", "For slow connections: big files take longer to start.",
-            listOf(0 to "No limit", 40 to "40 GB", 20 to "20 GB", 10 to "10 GB", 5 to "5 GB")),
+            listOf(0 to "No limit", 40 to "40 GB", 30 to "30 GB", 20 to "20 GB", 10 to "10 GB", 5 to "5 GB")),
         Choice("release", "Release type", "Which kind of file is tried first for this profile. REMUX is the full Blu-ray.",
             listOf("" to "No preference", "remux" to "Full Blu-ray (REMUX)", "encode" to "Smaller encodes", "web" to "Web releases"), true),
     )
@@ -165,14 +203,16 @@ class SettingsActivity : Screen() {
             listOf(true to "On", false to "Off")),
         Choice("passthrough", "Audio output", "Receiver sends Dolby and DTS untouched to a soundbar or receiver. TV speakers decodes the sound here, which always works.",
             listOf(false to "TV speakers", true to "Receiver")),
+        Choice("clearDialogue", "Clear dialogue", "Lifts voices above music and loud effects when using TV speakers.",
+            listOf(false to "Off", true to "On")),
     )
     private val dubbed = listOf(
         Choice("dub", "Dubbed releases", "Original first puts dubbed releases last; My language first uses this profile's audio language.",
             listOf("" to "No preference", "original" to "Original first", "mine" to "My language first"), true),
     )
     private val subtitles = listOf(
-        Choice("subtitles", "Subtitles by default", "Subtitles in your subtitle language start with the video when available.",
-            listOf(true to "On", false to "Off")),
+        Choice("subPref", "Subtitles by default", "Subtitles in your subtitle language start with the video when available.",
+            listOf("on" to "Always on", "foreign" to "Foreign audio only", "off" to "Off"), true),
     )
     private val subtitleLooks = listOf(
         Choice("subSize", "Subtitle size", "How big subtitles are on screen.",
@@ -191,6 +231,7 @@ class SettingsActivity : Screen() {
     private val groupViews = mutableMapOf<Group, View>()
     private val groupDots = mutableMapOf<Group, TextView>()
     private val groupLabels = mutableMapOf<Group, TextView>()
+    private val groupBadges = mutableMapOf<Group, View>()
     private val choiceRows = mutableSetOf<View>()
     private val refresh = mutableListOf<() -> Unit>()
     private var selectedGroup: Group? = null
@@ -201,6 +242,7 @@ class SettingsActivity : Screen() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Settings.hdrPref(this) // migrate the old HDR switch before any row reads it
+        Settings.subPref(this) // migrate the old subtitles switch before any row reads it
         val width = resources.displayMetrics.widthPixels / resources.displayMetrics.density
         val height = resources.displayMetrics.heightPixels / resources.displayMetrics.density
         val root = FrameLayout(this).apply { setBackgroundColor(BASE); clipChildren = false; clipToPadding = false }
@@ -267,6 +309,7 @@ class SettingsActivity : Screen() {
 
     override fun onResume() {
         super.onResume()
+        groupBadges[Group.ABOUT]?.visibility = if (Updates.hasUpdate(this)) View.VISIBLE else View.GONE
         if (::profileName.isInitialized) {
             val name = Profiles.active(this)?.name
             profileName.text = name?.let { "Profile " + it } ?: ""
@@ -307,11 +350,16 @@ class SettingsActivity : Screen() {
             imageTintList = ColorStateList.valueOf(TEXT_3)
         } else text(group.glyph, BODY, color = TEXT_3).apply { gravity = Gravity.CENTER }
         val label = text(group.label, BODY, bold = true, color = TEXT_2)
+        val badge = View(this).apply {
+            background = rounded(TUNGSTEN, 3)
+            visibility = if (group == Group.ABOUT && Updates.hasUpdate(this@SettingsActivity)) View.VISIBLE else View.GONE
+        }
         val row = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(dot, LinearLayout.LayoutParams(dp(10), -1))
             addView(icon, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginStart = dp(4) })
-            addView(label, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(10) })
+            addView(label, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
+            addView(badge, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(8) })
             setPadding(dp(2), 0, dp(4), 0)
             rowFocus(8, rest = { if (selectedGroup == group) tile(8) else null }) { has ->
                 if (has) showGroup(group)
@@ -321,6 +369,7 @@ class SettingsActivity : Screen() {
         groupViews[group] = row
         groupDots[group] = dot
         groupLabels[group] = label
+        groupBadges[group] = badge
         groups.addView(row, LinearLayout.LayoutParams(-1, dp(34)).apply { bottomMargin = dp(1) })
     }
 
@@ -416,6 +465,25 @@ class SettingsActivity : Screen() {
                     unhideMenu(::count)
                 }
                 count()
+                var hiddenRowsValue: TextView? = null
+                fun countRows() { hiddenRowsValue?.text = "${Settings.hiddenRows(this).size}  ›" }
+                hiddenRowsValue = actionRow("Hidden rows", "", "Put back a catalog row you hid.") {
+                    unhideRowsMenu(::countRows)
+                }
+                countRows()
+                choiceRow(Choice("startTab", "Default tab", "Which tab opens when starting the app.",
+                    listOf("home" to "Home", "movies" to "Movies", "shows" to "Shows", "library" to "My List"), perProfile = true))
+                choiceRow(Choice("showMovies", "Movies tab", "Show the Movies tab in the top navigation bar.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("showShows", "Shows tab", "Show the Shows tab in the top navigation bar.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("showLive", "Live tab", "Show the Live tab when your add-ons have TV channels.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("featuredHome", "Featured on Home", "Show top recommendations and trending rows below Continue Watching.",
+                    listOf(false to "Off", true to "On"), perProfile = true))
+                choiceRow(Choice("blurThumbnails", "Blur episode thumbnails",
+                    "Blur pictures of unwatched episodes in show guides to avoid spoilers.",
+                    listOf(false to "Off", true to "On"), perProfile = true))
             }
             Group.LANGUAGE -> actionRow("App language", Locale.getDefault().displayLanguage,
                 "The app follows this TV's language setting.") {
@@ -446,6 +514,7 @@ class SettingsActivity : Screen() {
                 background({ Updates.latest(applicationContext) }) { r ->
                     val release = r.getOrNull()
                     found = release?.takeIf { newerVersion(it.version, Updates.mine(this)) }
+                    groupBadges[Group.ABOUT]?.visibility = if (found != null) View.VISIBLE else View.GONE
                     value.text = when {
                         found != null -> "Install ${found!!.version}  ›"
                         release == null -> "Couldn't check · Try again  ›"
@@ -506,6 +575,16 @@ class SettingsActivity : Screen() {
         }
     }
 
+    /** The catalog rows hidden from home, movies or shows; OK on one puts it back. */
+    private fun unhideRowsMenu(done: () -> Unit) {
+        val all = Settings.hiddenRows(this).toList().sorted()
+        if (all.isEmpty()) return choose("No hidden rows", listOf("OK"), "Catalog rows you hide appear here.") {}
+        choose("Hidden rows", all, "Select a row to put it back.") { i ->
+            Settings.unhideRow(this, all[i])
+            done()
+        }
+    }
+
     private fun actionRow(label: String, value: String, help: String, click: () -> Unit): TextView {
         val display = text(if (value.isEmpty()) "›" else "$value  ›", BODY, color = TEXT_2)
         settingRow(label, display, help, focus = { display.setTextColor(if (it) TUNGSTEN else TEXT_2) }, click = click)
@@ -530,7 +609,7 @@ class SettingsActivity : Screen() {
     private fun choiceRow(c: Choice) {
         fun current() = c.values.indexOfFirst { it.first == stored(c) }.coerceAtLeast(0)
         // A switch only where the choice is On or Off; "Best source / Show sources" is a choice with words.
-        val isSwitch = c.values.map { it.second } == listOf("On", "Off")
+        val isSwitch = c.values.map { it.second }.toSet() == setOf("On", "Off")
         val words = text("", BODY, color = TEXT_2)
         val track = FrameLayout(this).apply { background = rounded(GLASS_EDGE, 9) }
         val knob = View(this)
@@ -543,7 +622,7 @@ class SettingsActivity : Screen() {
         var focused = false
         fun draw() {
             val index = current()
-            val on = isSwitch && c.values[index].first == true
+            val on = isSwitch && (c.values[index].first == true || c.values[index].second == "On")
             words.setTextColor(if (focused) TEXT else TEXT_2)
             words.text = if (isSwitch) c.values[index].second
                 else if (focused) "‹  " + c.values[index].second + "  ›" else c.values[index].second
