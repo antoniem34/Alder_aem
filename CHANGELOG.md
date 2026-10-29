@@ -17,6 +17,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **Mark episodes as watched.** Hold OK on an episode in the episode guide. Select **Mark as watched**, **Mark as unwatched**, or **Mark previous episodes watched**. Hold OK on a season button to mark all episodes of that season.
 - **New episode tags.** A tungsten tag shows on Continue Watching when a new episode is available.
 - **Protect unreleased episodes.** Alder shows the air date for future episodes and disables playback until they air.
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.

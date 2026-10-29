@@ -437,6 +437,10 @@ class DetailsActivity : Screen() {
                     fillGuide()
                     seasonButtons[season]?.requestFocus()
                 }
+                setOnLongClickListener {
+                    seasonMenu(season)
+                    true
+                }
                 seasonStrip.addView(this, LinearLayout.LayoutParams(-2, dp(24)).apply {
                     if (seasonStrip.childCount > 0) marginStart = dp(8)
                 })
@@ -482,9 +486,7 @@ class DetailsActivity : Screen() {
                     openSources(video.id, startOver = false, next = next, label = "S${video.season} E${video.episode}")
                 }
                 row.setOnLongClickListener {
-                    val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
-                    openSources(video.id, startOver = false, next = next,
-                        label = "S${video.season} E${video.episode}", pick = true)
+                    episodeMenu(video)
                     true
                 }
             }
@@ -537,6 +539,147 @@ class DetailsActivity : Screen() {
             hero.visibility = View.VISIBLE
             if (::playButton.isInitialized) playButton.requestFocus()
         }.start()
+    }
+
+    private fun ensureLibraryItem(): JSONObject {
+        itemChangedHere = true
+        val entry = item ?: Library.newItem(metaId, type, meta?.name ?: name, meta?.poster ?: poster)
+        item = entry
+        return entry
+    }
+
+    private fun saveAndRefresh(focusEpisodeId: String? = null, focusSeason: Int? = null) {
+        val entry = item ?: return
+        val snapshot = JSONObject(entry.toString())
+        background({ Stremio.saveLibrary(key, listOf(snapshot)) }) {}
+        fillGuide()
+        meta?.let(::showHero)
+        if (focusEpisodeId != null) {
+            val target = (0 until guideRows.childCount).map { guideRows.getChildAt(it) }
+                .firstOrNull { it.tag == focusEpisodeId }
+            target?.requestFocus()
+            meta?.videos?.firstOrNull { it.id == focusEpisodeId }?.let(::updatePreview)
+        } else if (focusSeason != null) {
+            seasonButtons[focusSeason]?.requestFocus()
+        }
+    }
+
+    private fun episodeMenu(video: Video) {
+        val videos = meta?.videos.orEmpty()
+        val watched = Library.watched(item, videos)
+        val isWatched = video.id in watched
+        val prior = Library.priorEpisodes(videos, video)
+
+        val options = mutableListOf<String>()
+        options.add("Choose a source")
+        options.add(if (isWatched) "Mark as unwatched" else "Mark as watched")
+        if (prior.isNotEmpty()) {
+            options.add("Mark previous episodes watched")
+        }
+
+        val epNumber = if (video.season > 0) "S${video.season} E${video.episode}" else "E${video.episode}"
+        val title = video.title.ifBlank { epNumber }
+        val message = if (video.title.isNotBlank()) epNumber else null
+
+        choose(title, options, message = message) { selected ->
+            when (options[selected]) {
+                "Choose a source" -> {
+                    val next = videos.getOrNull(videos.indexOf(video) + 1)?.id
+                    openSources(video.id, startOver = false, next = next,
+                        label = "S${video.season} E${video.episode}", pick = true)
+                }
+                "Mark as watched" -> markEpisodeWatched(video, true)
+                "Mark as unwatched" -> markEpisodeWatched(video, false)
+                "Mark previous episodes watched" -> markPreviousEpisodesWatched(video, prior)
+            }
+        }
+    }
+
+    private fun markEpisodeWatched(video: Video, watched: Boolean) {
+        val entry = ensureLibraryItem()
+        val videos = meta?.videos.orEmpty()
+        val s = entry.state
+        if (watched) {
+            Library.markWatched(entry, videos, video.id)
+            s.put("timesWatched", maxOf(1, s.optInt("timesWatched")))
+            val nextEp = Library.nextEpisode(videos, video)
+            if (nextEp != null) {
+                s.put("video_id", nextEp.id)
+                s.put("timeOffset", 0L)
+                s.put("flaggedWatched", 0)
+            } else {
+                s.put("video_id", video.id)
+                s.put("timeOffset", 0L)
+                s.put("flaggedWatched", 1)
+            }
+        } else {
+            Library.markUnwatched(entry, videos, video.id)
+            s.put("video_id", video.id)
+            s.put("timeOffset", 0L)
+            s.put("flaggedWatched", 0)
+        }
+        entry.put("_mtime", Library.now())
+        saveAndRefresh(focusEpisodeId = video.id)
+    }
+
+    private fun markPreviousEpisodesWatched(video: Video, prior: List<Video>) {
+        val entry = ensureLibraryItem()
+        val videos = meta?.videos.orEmpty()
+        val s = entry.state
+        Library.markEpisodesWatched(entry, videos, prior.map { it.id })
+        s.put("timesWatched", maxOf(1, s.optInt("timesWatched")))
+        s.put("video_id", video.id)
+        s.put("timeOffset", 0L)
+        s.put("flaggedWatched", 0)
+        entry.put("_mtime", Library.now())
+        saveAndRefresh(focusEpisodeId = video.id)
+    }
+
+    private fun seasonMenu(season: Int) {
+        val videos = meta?.videos.orEmpty()
+        val seasonVideos = videos.filter { it.season == season }
+        if (seasonVideos.isEmpty()) return
+        val watched = Library.watched(item, videos)
+        val allWatched = seasonVideos.all { it.id in watched }
+        val title = if (season == 0) "Specials" else "Season $season"
+        val option = if (allWatched) "Mark $title as unwatched" else "Mark $title as watched"
+        choose(title, listOf(option)) { selected ->
+            if (selected == 0) {
+                markSeasonWatched(season, !allWatched)
+            }
+        }
+    }
+
+    private fun markSeasonWatched(season: Int, watched: Boolean) {
+        val entry = ensureLibraryItem()
+        val videos = meta?.videos.orEmpty()
+        val seasonVideos = videos.filter { it.season == season }
+        val seasonIds = seasonVideos.map { it.id }.toSet()
+        val s = entry.state
+
+        if (watched) {
+            Library.markEpisodesWatched(entry, videos, seasonIds)
+            s.put("timesWatched", maxOf(1, s.optInt("timesWatched")))
+            val nextEp = Library.nextEpisodeAfterSeason(videos, season)
+            if (nextEp != null) {
+                s.put("video_id", nextEp.id)
+                s.put("timeOffset", 0L)
+                s.put("flaggedWatched", 0)
+            } else {
+                seasonVideos.lastOrNull()?.let { s.put("video_id", it.id) }
+                s.put("timeOffset", 0L)
+                s.put("flaggedWatched", 1)
+            }
+        } else {
+            Library.unmarkEpisodesWatched(entry, videos, seasonIds)
+            seasonVideos.firstOrNull()?.let { firstEp ->
+                s.put("video_id", firstEp.id)
+                s.put("timeOffset", 0L)
+                s.put("flaggedWatched", 0)
+            }
+        }
+        entry.put("_mtime", Library.now())
+        saveAndRefresh(focusSeason = season)
     }
 
     /**
