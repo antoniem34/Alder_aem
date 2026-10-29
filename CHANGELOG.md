@@ -17,6 +17,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 ## Unreleased
 
 ### New
+- **Mark episodes as watched.** Hold OK on an episode in the episode guide. Select **Mark as watched**, **Mark as unwatched**, or **Mark previous episodes watched**. Hold OK on a season button to mark all episodes of that season.
 - **Default tab.** Choose which tab opens when you start Alder. Select **Settings → Profile → Default tab**.
 - **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
 - **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.

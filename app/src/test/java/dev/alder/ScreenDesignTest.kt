@@ -264,4 +264,24 @@ class ScreenDesignTest {
         assertEquals(null, logoTint(intArrayOf(white, white, 0xFF000000.toInt(), clear)))
         assertEquals(null, logoTint(intArrayOf(clear, clear)))
     }
+
+    @Test fun episodeNavigationOrderAndPriorEpisodes() {
+        val e0 = Video("s0e1", "Special", 0, 1, null, null, null)
+        val e1 = Video("s1e1", "Pilot", 1, 1, null, null, null)
+        val e2 = Video("s1e2", "Second", 1, 2, null, null, null)
+        val e3 = Video("s2e1", "Season 2 Opener", 2, 1, null, null, null)
+        val videos = listOf(e0, e1, e2, e3)
+
+        assertEquals(emptyList<Video>(), Library.priorEpisodes(videos, e1))
+        assertEquals(listOf(e1), Library.priorEpisodes(videos, e2))
+        assertEquals(listOf(e1, e2), Library.priorEpisodes(videos, e3))
+        assertEquals(emptyList<Video>(), Library.priorEpisodes(videos, e0))
+
+        assertEquals(e2, Library.nextEpisode(videos, e1))
+        assertEquals(e3, Library.nextEpisode(videos, e2))
+        assertEquals(null, Library.nextEpisode(videos, e3))
+
+        assertEquals(e3, Library.nextEpisodeAfterSeason(videos, 1))
+        assertEquals(null, Library.nextEpisodeAfterSeason(videos, 2))
+    }
 }
