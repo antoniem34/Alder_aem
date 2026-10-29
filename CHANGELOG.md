@@ -45,6 +45,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
+- **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
+- **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.
 - **Cleaner player controls.** The audio and subtitle status now sits in the pause details instead of above the Play button.
 - **Back button on Android 16.** The Back button closes panels and player controls correctly on Android 16.
 

@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "dev.alder"
-        minSdk = 26
+        minSdk = 23
         targetSdk = 36
         versionCode = 5
         versionName = "1.2"
@@ -24,11 +24,17 @@ android {
     val keys = rootProject.file("keystore.properties").takeIf { it.exists() }
         ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
     signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
         if (keys != null) create("release") {
             storeFile = file(keys.getProperty("storeFile"))
             storePassword = keys.getProperty("storePassword")
             keyAlias = keys.getProperty("keyAlias")
             keyPassword = keys.getProperty("keyPassword")
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
