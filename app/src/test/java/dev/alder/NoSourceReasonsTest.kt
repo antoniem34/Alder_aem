@@ -14,7 +14,7 @@ class NoSourceReasonsTest {
             "Couldn't get sources from MediaFusion (key or sign-in refused). Try again, or check the add-on in Stremio.",
             "Torrentio found only torrents. A TV plays torrents through a debrid service, such as Real-Debrid, " +
                 "connected in the add-on's settings.",
-            "Trailers only has links that open in a browser or on YouTube, which Alder can't play.",
+            "Trailers only has links that open in a browser or on YouTube, which AEM Media can't play.",
         ), reasons)
     }
 
