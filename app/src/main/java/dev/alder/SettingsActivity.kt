@@ -57,11 +57,12 @@ object Settings {
     fun showMovies(c: Context) = prefs(c).getBoolean(profileKey(c, "showMovies"), true)
     fun showShows(c: Context) = prefs(c).getBoolean(profileKey(c, "showShows"), true)
     fun showAnime(c: Context) = prefs(c).getBoolean(profileKey(c, "showAnime"), true)
+    fun showAnimated(c: Context) = prefs(c).getBoolean(profileKey(c, "showAnimated"), true)
     fun showLive(c: Context) = prefs(c).getBoolean(profileKey(c, "showLive"), true)
     fun featuredHome(c: Context) = prefs(c).getBoolean(profileKey(c, "featuredHome"), false)
     /** A removed profile's taste goes with it, so a new profile in its place starts with none. */
     fun forget(c: Context, profileId: String) = prefs(c).edit().apply {
-        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showAnime", "showLive", "featuredHome", "recentSubLangs", "recentAudioLangs").forEach { remove("$it@$profileId") }
+        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showAnime", "showAnimated", "showLive", "featuredHome", "recentSubLangs", "recentAudioLangs").forEach { remove("$it@$profileId") }
         prefs(c).all.keys.filter { it.startsWith("title:") && it.endsWith("@$profileId") }.forEach(::remove)
     }.apply()
 
@@ -497,12 +498,14 @@ class SettingsActivity : Screen() {
                 }
                 countRows()
                 choiceRow(Choice("startTab", "Default tab", "Which tab opens when starting the app.",
-                    listOf("home" to "Home", "anime" to "Anime", "movies" to "Movies", "shows" to "Shows", "library" to "My List"), perProfile = true))
+                    listOf("home" to "Home", "anime" to "Anime", "animated" to "Animated", "movies" to "Movies", "shows" to "Shows", "library" to "My List"), perProfile = true))
                 choiceRow(Choice("showMovies", "Movies tab", "Show the Movies tab in the top navigation bar.",
                     listOf(true to "On", false to "Off"), perProfile = true))
                 choiceRow(Choice("showShows", "Shows tab", "Show the Shows tab in the top navigation bar.",
                     listOf(true to "On", false to "Off"), perProfile = true))
                 choiceRow(Choice("showAnime", "Anime tab", "Show Kitsu and other anime catalogs in their own tab.",
+                    listOf(true to "On", false to "Off"), perProfile = true))
+                choiceRow(Choice("showAnimated", "Animated tab", "Show Cinemeta animated series in their own tab.",
                     listOf(true to "On", false to "Off"), perProfile = true))
                 choiceRow(Choice("showLive", "Live tab", "Show the Live tab when your add-ons have TV channels.",
                     listOf(true to "On", false to "Off"), perProfile = true))

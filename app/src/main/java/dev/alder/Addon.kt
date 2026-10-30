@@ -13,6 +13,13 @@ import java.util.concurrent.TimeUnit
  * One installed addon, spoken to with the Stremio addon protocol: plain GETs for catalogs, metadata and streams.
  * [descriptor] is the account's entry for it as Stremio stores it, kept whole so it can be copied to another profile.
  */
+/** Virtual animation rows use Cinemeta's standard catalog IDs. */
+internal fun cinemetaCatalogId(id: String): String = when (id) {
+    "aem-animation-top" -> "top"
+    "aem-animation-rated" -> "imdbRating"
+    else -> id
+}
+
 class Addon(val descriptor: JSONObject) {
     private val manifest: JSONObject = descriptor.getJSONObject("manifest")
     val id: String = manifest.optString("id")
@@ -91,7 +98,8 @@ class Addon(val descriptor: JSONObject) {
     /** /catalog/type/id/genre=Drama&skip=20.json: the catalog's required extras, the [genre] picked, and the page. */
     private fun catalogUrl(c: Catalog, genre: String?, skip: Int = 0): String {
         val extras = c.required + listOfNotNull(genre?.let { "genre" to it }, ("skip" to "$skip").takeIf { skip > 0 })
-        val path = url(arrayOf("catalog", c.type, c.id))
+        val catalogId = cinemetaCatalogId(c.id)
+        val path = url(arrayOf("catalog", c.type, catalogId))
         if (extras.isEmpty()) return path
         return path.removeSuffix(".json") + "/" + extras.entries.joinToString("&") { (k, v) -> "$k=${Uri.encode(v)}" } + ".json"
     }
