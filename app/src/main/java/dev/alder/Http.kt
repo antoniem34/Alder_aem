@@ -20,7 +20,7 @@ object Http {
         }
 
     /** Set once at start with the app's version. */
-    var userAgent = "Alder"
+    var userAgent = "AEM Media"
 
     /** [strict]: an error answer throws [HttpError] even when its body is JSON (add-ons, not Stremio's API, read so). */
     fun get(url: String, keep: Boolean = false, timeoutMs: Int = 20_000, strict: Boolean = false, headers: Map<String, String> = emptyMap()): String =
