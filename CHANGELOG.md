@@ -36,6 +36,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
+- **Fast audio and subtitle tabs.** Switch between **Subtitles**, **Audio**, and **Sync & Style** with Left and Right. Active, preferred, and recent tracks pin to the top. Other tracks show in a grid to reduce remote clicks. Adjust subtitle sync on the Subtitles tab or in Sync & Style.
 - **Format and debrid badges in the player.** Open the player controls to see badges for resolution, Dolby Vision, HDR, Dolby Atmos, DTS, audio language, subtitles, and your debrid service below the title.
 - **Faster access to Audio & subtitles.** Press Left once from Play / Pause in the player to open **Audio & subtitles**.
 - **Live subtitle sync.** Adjust subtitle timing with Left and Right while the video plays. This works for embedded subtitles and add-on subtitles.
