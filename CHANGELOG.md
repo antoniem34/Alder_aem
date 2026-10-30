@@ -53,7 +53,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Close player controls.** Press Back to close the controls while the video plays. Press Back again to leave the player.
 - **Exact subtitle remembered.** When you play a video again, Alder uses the exact subtitle track that you selected before.
 - **Update notification dot.** A dot on your profile avatar shows when a new version of Alder is ready.
-- **Install an update from the profile menu.** Select your profile avatar, then select **Install update**.
+- **Install an update from the profile menu.** Select your profile avatar, then select **Install update**. Alder installs version 1.3 over version 1.2.
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
