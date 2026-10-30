@@ -31,13 +31,13 @@ internal object SpanishMetadata {
     }
 
     private fun tmdb(key: String, imdbId: String, type: String): String? {
-        val find = JSONObject(Http.get("$TMDB/find/$imdbId?api_key=$key&external_source=imdb_id", keep = true))
+        val find = JSONObject(Http.get("$TMDB/find/$imdbId?api_key=$key&external_source=imdb_id"))
         val movie = type == "movie"
         val result = find.optJSONArray(if (movie) "movie_results" else "tv_results")?.optJSONObject(0)
             ?: return null
         val id = result.optInt("id").takeIf { it > 0 } ?: return null
         val media = if (movie) "movie" else "tv"
-        return JSONObject(Http.get("$TMDB/$media/$id?api_key=$key&language=es-MX", keep = true))
+        return JSONObject(Http.get("$TMDB/$media/$id?api_key=$key&language=es-MX"))
             .optString("overview").trim().ifEmpty { null }
     }
 
