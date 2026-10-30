@@ -166,7 +166,7 @@ class Addon(val descriptor: JSONObject) {
     }
 
     /**
-     * What Alder can't play, counted to say why: [torrents], a torrent with no debrid link (an infoHash, no url), and
+     * What AEM Media can't play, counted to say why: [torrents], a torrent with no debrid link (an infoHash, no url), and
      * [links], a page for a browser or a YouTube video (externalUrl, ytId).
      */
     class Streams(val playable: List<Stream>, val torrents: Int, val links: Int)
@@ -197,8 +197,8 @@ class Addon(val descriptor: JSONObject) {
 fun List<Addon>.meta(type: String, id: String, together: Boolean = false): Meta? {
     val serving = filter { it.serves("meta", type, id) }
     fun ask(a: Addon) = runCatching { a.meta(type, id) }
-        .onFailure { android.util.Log.w("Alder", "details from ${a.name} failed", it) }.getOrNull()
-        .also { if (it == null) android.util.Log.i("Alder", "no details for $type $id from ${a.name}") }
+        .onFailure { android.util.Log.w("AEM Media", "details from ${a.name} failed", it) }.getOrNull()
+        .also { if (it == null) android.util.Log.i("AEM Media", "no details for $type $id from ${a.name}") }
     if (!together || serving.size < 2) return serving.firstNotNullOfOrNull(::ask)
     return serving.map { a -> metaPool.submit<Meta?> { ask(a) } }.firstNotNullOfOrNull { it.get() }
 }

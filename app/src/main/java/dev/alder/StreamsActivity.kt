@@ -236,7 +236,7 @@ class StreamsActivity : Screen() {
                 background({ addon.streams(type, videoId) }) { streams ->
                     streams.exceptionOrNull()?.let { e ->
                         failures[i] = e
-                        android.util.Log.w("Alder", "streams from ${addon.name} failed", e)
+                        android.util.Log.w("AEM Media", "streams from ${addon.name} failed", e)
                     }
                     torrents[i] = streams.getOrNull()?.torrents ?: 0
                     links[i] = streams.getOrNull()?.links ?: 0
@@ -450,7 +450,7 @@ internal fun noSourceReasons(names: List<String>, failures: Array<Throwable?>, t
                 "connected in the add-on's settings."
         },
         linkOnly.takeIf { it.isNotEmpty() }?.let {
-            "${it.joinToString(", ")} only has links that open in a browser or on YouTube, which Alder can't play."
+            "${it.joinToString(", ")} only has links that open in a browser or on YouTube, which AEM Media can't play."
         },
         unplayable.takeIf { it > 0 }?.let { "$it ${if (it == 1) "source needs" else "sources need"} a video format this TV can't decode." },
     ).ifEmpty { listOf("Your add-ons have no sources for this title.") }

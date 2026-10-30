@@ -544,7 +544,7 @@ class MainActivity : Screen() {
         }
     }
 
-    private var refreshAddons: (() -> Unit)? = null // the open page's add-on check, run again on coming back to Alder
+    private var refreshAddons: (() -> Unit)? = null // the open page's add-on check, run again on coming back to AEM Media
 
     private var refreshLibrary: (() -> Unit)? = null // the open page's library rows (Home, Library), asked again
     private var last: View? = null // where the remote last was in the rows
@@ -556,7 +556,7 @@ class MainActivity : Screen() {
         if (Updates.due(this)) background({ Updates.latest(applicationContext) }) { r ->
             val release = r.getOrNull()?.takeIf { newerVersion(it.version, Updates.mine(this)) } ?: return@background
             updateDot?.visibility = View.VISIBLE
-            if (Updates.offerOnce(this, release.version)) choose("Alder ${release.version} is ready", listOf("Later", "Install"),
+            if (Updates.offerOnce(this, release.version)) choose("AEM Media ${release.version} is ready", listOf("Later", "Install"),
                 "Install it now? It takes a minute, and your profiles and settings stay.") { if (it == 1) installUpdate(release) }
         }
     }
@@ -1278,7 +1278,7 @@ class MainActivity : Screen() {
                     val items = cw.map(::libraryItem)
                     if (items.isNotEmpty()) {
                         slot.addView(row("Continue", items.take(START), later(items)).view)
-                        android.util.Log.d("Alder", "page ${p.label}: Continue in ${android.os.SystemClock.uptimeMillis() - opened} ms")
+                        android.util.Log.d("AEM Media", "page ${p.label}: Continue in ${android.os.SystemClock.uptimeMillis() - opened} ms")
                         startCinema(items.take(CINEMA_MAX))
                     }
                 } else {
@@ -1409,7 +1409,7 @@ class MainActivity : Screen() {
                         old?.let { it.cards.forEach { card -> card.unload() }; rows.remove(it); slot.removeAllViews() }
                         val made = row(title, items.take(maxOf(START, old?.items?.size ?: START)), more, wide = (p == Page.LIVE))
                         slot.addView(made.view)
-                        if (i == 0) android.util.Log.d("Alder", "page ${p.label}: first row in ${android.os.SystemClock.uptimeMillis() - opened} ms")
+                        if (i == 0) android.util.Log.d("AEM Media", "page ${p.label}: first row in ${android.os.SystemClock.uptimeMillis() - opened} ms")
                         updateNextRow()
                         if (jumpTo == title) { jumpTo = null; made.view.post { made.focusFirst() } }
                     }
@@ -1448,7 +1448,7 @@ class MainActivity : Screen() {
                             (if (quick) catalog.addon.savedCatalog(catalog, picked) else null)?.let { it to true }
                                 ?: (catalog.addon.catalog(catalog, picked, CATALOG_WAIT) to false)
                         }.getOrElse { e ->
-                            android.util.Log.w("Alder", "row $title (${catalog.id}, genre $picked) failed: $e")
+                            android.util.Log.w("AEM Media", "row $title (${catalog.id}, genre $picked) failed: $e")
                             emptyList<Meta>() to false
                         }
                     }) { answer ->
@@ -1476,7 +1476,7 @@ class MainActivity : Screen() {
             }
         }
         if (quick) background({ Stremio.savedAddons(key) }) { r -> r.getOrNull()?.let(::build) }
-        // Every page asks Stremio for the add-on list once as it opens (and again when Alder comes back to the front), and
+        // Every page asks Stremio for the add-on list once as it opens (and again when AEM Media comes back to the front), and
         // redraws only when the list differs from the one its rows came from: add-ons added or removed elsewhere.
         fun checkAddons(drawn: (List<Addon>) -> Unit) = background({ Stremio.addons(key, refresh = true) }) { r -> r.fold({ fresh ->
             if (g == generation) showLiveTab(fresh)

@@ -326,7 +326,7 @@ class PlayerActivity : Screen() {
     }
     private val startTimeout = Runnable {
         if (started) return@Runnable
-        android.util.Log.w("Alder", "source ${at + 1}/${sources.size} timed out, state ${player.playbackState}")
+        android.util.Log.w("AEM Media", "source ${at + 1}/${sources.size} timed out, state ${player.playbackState}")
         next()
     }
 
@@ -459,7 +459,7 @@ class PlayerActivity : Screen() {
                         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                             .setOverrideForType(TrackSelectionOverride(next.mediaTrackGroup, (0 until next.length).toList())).build()
                         player.prepare()
-                        android.util.Log.i("Alder", "Audio track changed after decoder error")
+                        android.util.Log.i("AEM Media", "Audio track changed after decoder error")
                         return
                     }
                 }
@@ -477,7 +477,7 @@ class PlayerActivity : Screen() {
                     main.postDelayed({ if (!isFinishing) player.prepare() }, RETRY_WAIT)
                     return
                 }
-                android.util.Log.w("Alder", "source ${at + 1}/${sources.size} failed: ${e.errorCodeName}", e)
+                android.util.Log.w("AEM Media", "source ${at + 1}/${sources.size} failed: ${e.errorCodeName}", e)
                 next(e.errorCodeName)
             }
 
@@ -658,13 +658,13 @@ class PlayerActivity : Screen() {
             // then one file for each other language by name, so the list stays short enough for a remote.
             val all = Stremio.addons(key).filter { it.serves("subtitles", type, videoId) }
                 .flatMap { a -> runCatching { a.subtitles(type, videoId) }
-                    .onFailure { android.util.Log.w("Alder", "subtitles from ${a.name} failed", it) }.getOrDefault(emptyList()) }
+                    .onFailure { android.util.Log.w("AEM Media", "subtitles from ${a.name} failed", it) }.getOrDefault(emptyList()) }
             all.groupBy { Languages.code(it.lang) ?: it.lang }.entries
                 .sortedWith(compareBy({ it.key != wantSub }, { it.key != "en" }, { Languages.name(it.key) }))
                 .flatMap { (code, files) -> files.take(if (code == wantSub || code == "en") 3 else 1) }
         }) { r ->
             addonSubs = r.getOrDefault(emptyList())
-            android.util.Log.i("Alder", "addon subtitles: ${addonSubs.size}", r.exceptionOrNull())
+            android.util.Log.i("AEM Media", "addon subtitles: ${addonSubs.size}", r.exceptionOrNull())
             val exact = addonSubs.firstOrNull { "addon:" + it.url == pickedSub }
             if (subsAnswered) { // too late for the start: offered in the list, and the file picked last time attached now
                 if (exact != null && chosenSub == null) {
@@ -846,7 +846,7 @@ class PlayerActivity : Screen() {
             audioPicked = false
             subsPicked = false
             failedAudio.clear()
-            android.util.Log.w("Alder", "Source failed: $reason; trying another")
+            android.util.Log.w("AEM Media", "Source failed: $reason; trying another")
             return load(position, "That source failed · trying the next one")
         }
         if (isTrailer) {
