@@ -812,7 +812,7 @@ class PlayerActivity : Screen() {
             val chaps = r.getOrNull()
             if (!chaps.isNullOrEmpty() && sources.getOrNull(at)?.url == sourceUrl) {
                 mkvChapters = chaps
-                updateMarkers()
+                reconcileSegments()
             }
         }
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true).setDefaultRequestProperties(s.headers)
@@ -1268,7 +1268,9 @@ class PlayerActivity : Screen() {
     // ponytail: series with IMDb ids only; anime (AniSkip by MAL id) and films' credits aren't asked for.
     private lateinit var skip: TextView
     private var segments = emptyList<IntroSegment>()
+    private var introDbSegments = emptyList<IntroSegment>()
     private var outroAt = 0L
+    private var introDbOutroAt = 0L
     private var skipShownAt = 0L
     private val skipped = mutableSetOf<IntroSegment>() // shown once and left alone, or skipped: not offered again this time
     private val skipTask = Runnable { checkSegments() }
@@ -1278,15 +1280,41 @@ class PlayerActivity : Screen() {
         if (type != "series" || !metaId.startsWith("tt") || parts.size < 3) return
         background({
             val json = JSONObject(Http.get("https://api.introdb.app/segments?imdb_id=${parts[0]}&season=${parts[1]}&episode=${parts[2]}"))
-            fun part(name: String) = json.optJSONObject(name)?.let { it.optDouble("start_sec", -1.0) to it.optDouble("end_sec", -1.0) }
-                ?.takeIf { (a, b) -> a >= 0 && b > a }?.let { (a, b) -> (a * 1000).toLong() to (b * 1000).toLong() }
+            fun part(name: String) = json.optJSONObject(name)?.let { seg ->
+                val startSec = seg.optDouble("start_sec", -1.0)
+                val endSec = seg.optDouble("end_sec", -1.0)
+                val confidence = seg.optDouble("confidence", 1.0)
+                // Filter out low confidence segments (must be >= 0.8)
+                if (confidence < 0.8 || startSec < 0 || endSec <= startSec) null
+                else (startSec * 1000).toLong() to (endSec * 1000).toLong()
+            }
             Triple(part("intro"), part("recap"), part("outro"))
         }) { r ->
             val (intro, recap, outro) = r.getOrNull() ?: return@background
-            segments = listOfNotNull(recap?.let { IntroSegment("Skip recap", it.first, it.second) }, intro?.let { IntroSegment("Skip intro", it.first, it.second) })
-            outroAt = outro?.first ?: 0L
-            updateMarkers()
+            introDbSegments = listOfNotNull(
+                recap?.let { IntroSegment("Skip recap", it.first, it.second) },
+                intro?.let { IntroSegment("Skip intro", it.first, it.second) }
+            )
+            introDbOutroAt = outro?.first ?: 0L
+            reconcileSegments()
         }
+    }
+
+    private fun reconcileSegments() {
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val mkvIntros = MkvChapters.findIntroSegments(mkvChapters, duration)
+        if (mkvIntros.isNotEmpty()) {
+            segments = mkvIntros.map { IntroSegment(it.label, it.startMs, it.endMs) }
+            outroAt = introDbOutroAt
+        } else {
+            // Reject zero-second starts from IntroDB if file has chapters indicating a later start or cold open
+            val hasColdOpenChapter = mkvChapters.any { it.startMs in 1L..120_000L }
+            segments = introDbSegments.filterNot { seg ->
+                seg.startMs == 0L && hasColdOpenChapter
+            }
+            outroAt = introDbOutroAt
+        }
+        updateMarkers()
     }
 
     private fun updateMarkers() {

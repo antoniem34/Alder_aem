@@ -42,6 +42,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
+- **QWERTY Search keys.** The Search keyboard uses QWERTY letter rows. The microphone icon stays dim until voice search is available.
 - **Audio and subtitle tabs.** Select **Subtitles**, **Audio**, or **Sync & Style**. Active, preferred, and recent tracks appear first. Adjust subtitle sync in the panel.
 - **Clearer title page.** Cast names stay clear in dark glass capsules.
 - **Clearer menus.** Add-on lists, Search, and choice menus use glass that is easy to read.
@@ -62,6 +63,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 
 ### Fixes
 - **Up next episode card timing.** When credit timing is present, Alder shows Up next only after the credits start. Fallback window now triggers during the final 15 to 25 seconds instead of a minute early.
+- **Skip intro button timing.** Alder reads MKV intro chapters first. Alder filters low confidence IntroDB segments and stops false zero second prompts when cold opens exist.
 - **Remote focus and scrolling in Audio & subtitles.** Selecting an audio or subtitle track keeps remote focus on the selected track and does not reset the scroll position. Scrolling between tracks operates smoothly and clips cleanly within the scroll viewport.
 - **Smoked glass overlay in Audio & subtitles.** The Audio & subtitles sheet uses the Alder smoked glass recipe for high contrast over video.
 - **Cleaner title page.** The light around **Play** and **Resume** sits in the center. Cast names stay inside the screen margins. Action buttons align in the center.
