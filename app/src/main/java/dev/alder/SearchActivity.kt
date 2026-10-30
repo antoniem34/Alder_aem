@@ -479,7 +479,7 @@ class SearchActivity : Screen() {
             background({
                 val addons = Stremio.savedAddons(authKey.orEmpty()).orEmpty().ifEmpty { Stremio.addons(authKey.orEmpty()) }
                 val catalogs = addons.flatMap { it.catalogs }
-                    .filter { it.type == "movie" || it.type == "series" }
+                    .filter { it.type == "movie" || it.type == "series" || it.type == "anime" }
                 // Popular or trending first, then any other; one that fails or comes back empty gives way to the next.
                 catalogs.sortedByDescending { it.name.contains("popular", true) || it.name.contains("trending", true) }
                     .take(4).asSequence()
@@ -510,12 +510,13 @@ class SearchActivity : Screen() {
             fun update(final: Boolean = false) {
                 if (token != request || finished) return
                 val found = searchAnswersInAddonOrder(answers)
-                    .filter { it.type == "movie" || it.type == "series" }
+                    .filter { it.type == "movie" || it.type == "series" || it.type == "anime" }
                     .filterNot { isAddonMessage(it.name) }
                     .distinctBy { it.type to it.id }
                 val ranked = rankSearchTitles(found, query) { it.name }
                 val sections = linkedMapOf("Movies" to ranked.filter { it.type == "movie" }.take(PER_TYPE),
-                    "Shows" to ranked.filter { it.type == "series" }.take(PER_TYPE)).filterValues { it.isNotEmpty() }
+                    "Shows" to ranked.filter { it.type == "series" }.take(PER_TYPE),
+                    "Anime" to ranked.filter { it.type == "anime" }.take(PER_TYPE)).filterValues { it.isNotEmpty() }
                 if (sections.isNotEmpty()) render(sections, query, moveFocus && (final || completed == addons.size))
                 else if (final || completed == addons.size) {
                     results.removeAllViews()
