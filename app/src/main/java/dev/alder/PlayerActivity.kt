@@ -58,7 +58,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal fun lowerSourceHeight(height: Int): Int? = listOf(1080, 720, 480).firstOrNull { it < height }
-internal fun upNextWindow(durationMs: Long) = minOf(60_000L, maxOf(30_000L, durationMs / 25))
+internal fun upNextWindow(durationMs: Long) = minOf(25_000L, maxOf(15_000L, durationMs / 60))
 internal fun plausibleEpisode(durationMs: Long) = durationMs >= 2 * 60_000L
 
 // Fall-asleep protection: episodes that end in a row with no remote key pressed are counted, and the next one waits
@@ -945,7 +945,9 @@ class PlayerActivity : Screen() {
             Library.markWatched(item, videos, videoId)
         }
         // Keep the current episode full screen; offer the next one only near its actual end.
-        if (!upNextDismissed && upNextPanel.visibility != View.VISIBLE && duration - position < upNextWindow(duration)) showUpNext()
+        // If credits timing (outroAt) is known, wait until outroAt before showing Up next.
+        val shouldShowUpNext = if (outroAt > 0) position >= outroAt else duration - position < upNextWindow(duration)
+        if (!upNextDismissed && upNextPanel.visibility != View.VISIBLE && shouldShowUpNext) showUpNext()
     }
 
     /** The episode after this one, or null for a film, the last episode, or before the episode list is in. */
