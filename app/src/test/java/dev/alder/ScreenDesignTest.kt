@@ -266,8 +266,8 @@ class ScreenDesignTest {
     }
 
     @Test fun upNextNeverInterruptsMoreThanTheFinalMinute() {
-        assertEquals(30_000L, upNextWindow(10 * 60_000L))
-        assertEquals(60_000L, upNextWindow(60 * 60_000L))
+        assertEquals(15_000L, upNextWindow(10 * 60_000L))
+        assertEquals(25_000L, upNextWindow(60 * 60_000L))
     }
 
     @Test fun sourceRowsUseFileFactsWithoutShowingAddonDescriptions() {
