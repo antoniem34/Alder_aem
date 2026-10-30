@@ -13,9 +13,9 @@ object Tmdb {
     private val memoryCache = ConcurrentHashMap<String, List<CastMember>>()
     private val creditsCache = ConcurrentHashMap<String, Set<String>>()
 
-    fun cast(context: Context, imdbId: String, type: String): List<CastMember> {
-        val KEY = key(context) ?: return emptyList()
+    fun cast(context: Context?, imdbId: String, type: String): List<CastMember> {
         if (!imdbId.startsWith("tt")) return emptyList()
+        val KEY = context?.let(::key) ?: return emptyList()
         memoryCache[imdbId]?.let { return it }
         return runCatching {
             val findUrl = "$BASE/find/$imdbId?api_key=$KEY&external_source=imdb_id"
@@ -73,8 +73,9 @@ object Tmdb {
     /**
      * Resolves credited movie and TV titles for a person from TMDB to filter out search false-positives.
      */
-    fun personCredits(context: Context, personId: Int?, personName: String, isDirector: Boolean): Set<String> {
-        val KEY = key(context) ?: return emptySet()
+    fun personCredits(context: Context?, personId: Int?, personName: String, isDirector: Boolean): Set<String> {
+        if (personId == null && personName.isBlank()) return emptySet()
+        val KEY = context?.let(::key) ?: return emptySet()
         val cacheKey = "${personId ?: personName}_$isDirector".lowercase()
         creditsCache[cacheKey]?.let { return it }
 
