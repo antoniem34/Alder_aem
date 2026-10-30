@@ -143,7 +143,7 @@ internal fun logoTint(pixels: IntArray): Int? {
 class MainActivity : Screen() {
     private enum class Page(val label: String) { HOME("Home"), ANIME("Anime"), SHOWS("Shows"), MOVIES("Movies"), LIVE("Live"), LIBRARY("My List") }
     private enum class Mode { CINEMA, BROWSE }
-    private enum class ListFilter { ALL, MOVIES, SHOWS }
+    private enum class ListFilter { ALL, MOVIES, SHOWS, ANIME }
     private enum class ListSort { RECENT, NAME, UNWATCHED }
 
     private lateinit var profile: Profile
@@ -1088,7 +1088,7 @@ class MainActivity : Screen() {
         val meta = metas[item.id]
         val year = meta?.year ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
         val genre = meta?.genres?.firstOrNull() ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == false && !it.startsWith("IMDb") }?.substringBefore(",")
-        val length = if (item.type == "series") meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
+        val length = if (isEpisodicType(item.type)) meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
             else meta?.runtime
         // A show in progress describes its next episode, so the line names that episode rather than the show.
         val code = item.left?.split(DOT)?.firstOrNull { it.startsWith("S") && " E" in it }
@@ -1129,7 +1129,7 @@ class MainActivity : Screen() {
         val stop = item.stoppedAt?.takeIf { it > 0 }?.let { "Stopped at ${android.text.format.DateUtils.formatElapsedTime(it / 1000)}" }
         val meta = metas[item.id]
         val detail = if (page == Page.HOME) meta?.year ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
-            else if (item.type == "series") meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
+            else if (isEpisodicType(item.type)) meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
             else meta?.runtime
         cardCaption.text = listOfNotNull(remaining, stop).takeIf { it.isNotEmpty() }?.joinToString(DOT)
             ?: listOfNotNull(item.name, detail).joinToString(DOT)
@@ -1164,7 +1164,7 @@ class MainActivity : Screen() {
     private fun facts(item: Item): String {
         val year = item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
         val genre = item.facts.firstOrNull { it.firstOrNull()?.isDigit() == false && !it.startsWith("IMDb") }?.substringBefore(",")
-        return listOfNotNull(if (item.type == "series") "Series" else "Movie", year, genre).joinToString(DOT)
+        return listOfNotNull(when (item.type) { "series" -> "Series"; "anime" -> "Anime"; else -> "Movie" }, year, genre).joinToString(DOT)
     }
 
     /** The episode Continue Watching points at, once the title's details are in. */
@@ -1317,8 +1317,11 @@ class MainActivity : Screen() {
             if (catalogs.isEmpty()) {
                 val what = when (p) { Page.MOVIES -> "movie"; Page.ANIME -> "anime"; Page.LIVE -> "live"; else -> "show" }
                 // Home holds only Continue and Watchly's picks, so a new account sees nothing there without a word.
-                content.addView(text(if (p == Page.HOME) "Picks for you show here once Watchly is installed on this profile's Stremio account. Shows and Movies have more to browse."
-                    else "None of your addons has $what catalogs. Add one (AIOMetadata, Cinemeta) in Stremio.", BODY, color = TEXT_3)
+                content.addView(text(when (p) {
+                    Page.HOME -> "Picks for you show here once Watchly is installed on this profile's Stremio account. Shows and Movies have more to browse."
+                    Page.ANIME -> "No anime catalogs yet. Install Anime Kitsu in Stremio and reload add-ons in Settings."
+                    else -> "None of your addons has $what catalogs. Add one in Stremio."
+                }, BODY, color = TEXT_3)
                     .apply { setPadding(dp(PAD), 0, dp(PAD), 0) })
             }
             val genres = catalogGenres(catalogs.flatMap { it.genres })
@@ -1503,7 +1506,7 @@ class MainActivity : Screen() {
             line.addView(control, LinearLayout.LayoutParams(-2, dp(CHIP_H)).apply { if (line.childCount > 0) marginStart = dp(6) })
             return control
         }
-        listOf(ListFilter.ALL to "All", ListFilter.MOVIES to "Movies", ListFilter.SHOWS to "Shows").forEach { (value, label) ->
+        listOf(ListFilter.ALL to "All", ListFilter.MOVIES to "Movies", ListFilter.SHOWS to "Shows", ListFilter.ANIME to "Anime").forEach { (value, label) ->
             listFilterChips[value] = add(label, value == listFilter) {
                 if (listFilter != value) { listFilter = value; styleListChips(); redrawLibrary() }
             }
@@ -1627,7 +1630,16 @@ class MainActivity : Screen() {
 
     private fun showLibrary(slot: FrameLayout) {
         val all = library.filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series", "anime") }
-            .filter { listFilter == ListFilter.ALL || it.optString("type") == if (listFilter == ListFilter.MOVIES) "movie" else "series" }
+            .filter { item ->
+                val type = item.optString("type")
+                val anime = type == "anime" || item.optString("_id").startsWith("kitsu:")
+                when (listFilter) {
+                    ListFilter.ALL -> true
+                    ListFilter.MOVIES -> type == "movie"
+                    ListFilter.SHOWS -> type == "series" && !anime
+                    ListFilter.ANIME -> anime
+                }
+            }
         val ordered = when (listSort) {
             ListSort.RECENT -> all.sortedByDescending { it.optString("_ctime") }
             ListSort.NAME -> all.sortedBy { it.optString("name").lowercase() }
@@ -2195,7 +2207,7 @@ class MainActivity : Screen() {
         val videoId = item.videoId ?: item.id
         val videos = metas[item.id]?.videos.orEmpty()
         val next = videos.getOrNull(videos.indexOfFirst { it.id == videoId } + 1)?.takeIf { videos.any { it.id == videoId } }
-        val episode = item.left?.substringBefore(" · ")?.takeIf { item.type == "series" && it.startsWith("S") }
+        val episode = item.left?.substringBefore(" · ")?.takeIf { isEpisodicType(item.type) && it.startsWith("S") }
         val intent = Intent(this, StreamsActivity::class.java)
             .putExtra("type", item.type).putExtra("id", item.id).putExtra("name", item.name).putExtra("poster", item.poster)
             .putExtra("videoId", videoId).putExtra("nextVideoId", next?.id).putExtra("pick", pick)
