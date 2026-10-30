@@ -6,6 +6,11 @@ import java.net.URL
 data class MkvChapter(val startMs: Long, val title: String)
 
 /**
+ * An intro or recap chapter detected within container metadata.
+ */
+data class MkvIntroSegment(val label: String, val startMs: Long, val endMs: Long)
+
+/**
  * Lightweight pure-Kotlin Matroska (MKV) EBML parser that extracts chapter landmarks from container headers.
  * Does not depend on Media3/ExoPlayer version or Jellyfin ffmpeg-decoder glue.
  */
@@ -27,6 +32,41 @@ object MkvChapters {
     const val ID_CHAP_STRING = 0x85L
 
     private const val BUFFER_SIZE = 65536 // 64 KB
+
+    private val INTRO_PATTERN = Regex("(?i)\\b(intro|opening|op|recap|previously on|prologue)\\b")
+
+    /**
+     * Finds intro or recap segments from parsed MKV chapters.
+     * The segment spans from the intro chapter start until the next chapter start.
+     */
+    fun findIntroSegments(chapters: List<MkvChapter>, durationMs: Long = 0L): List<MkvIntroSegment> {
+        if (chapters.isEmpty()) return emptyList()
+        val sorted = chapters.sortedBy { it.startMs }
+        val segments = mutableListOf<MkvIntroSegment>()
+
+        for (i in sorted.indices) {
+            val curr = sorted[i]
+            val title = curr.title.trim()
+            if (!INTRO_PATTERN.containsMatchIn(title)) continue
+
+            val isRecap = title.contains("recap", ignoreCase = true) || title.contains("previously", ignoreCase = true)
+            val label = if (isRecap) "Skip recap" else "Skip intro"
+
+            val nextStart = sorted.getOrNull(i + 1)?.startMs
+            val endMs = when {
+                nextStart != null && nextStart > curr.startMs -> nextStart
+                durationMs > curr.startMs -> durationMs
+                else -> curr.startMs + 90_000L // 90 s default if final or unknown
+            }
+
+            // Only consider reasonable intro lengths (between 5 seconds and 10 minutes)
+            val lengthMs = endMs - curr.startMs
+            if (lengthMs in 5_000L..600_000L) {
+                segments.add(MkvIntroSegment(label, curr.startMs, endMs))
+            }
+        }
+        return segments
+    }
 
     /**
      * Fetches and parses chapters from a video URL using a two-step HTTP range request:

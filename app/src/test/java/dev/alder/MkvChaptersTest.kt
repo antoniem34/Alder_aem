@@ -146,4 +146,39 @@ class MkvChaptersTest {
         assertTrue(MkvChapters.parseChaptersFromBuffer(ByteArray(0)).isEmpty())
         assertTrue(MkvChapters.parseChaptersFromBuffer(byteArrayOf(1, 2, 3, 4)).isEmpty())
     }
+
+    @Test
+    fun testFindIntroSegmentsFromChapters() {
+        val chapters = listOf(
+            MkvChapter(0L, "Prologue"),
+            MkvChapter(90_000L, "Opening / Intro"),
+            MkvChapter(180_000L, "Episode Part 1"),
+            MkvChapter(1_200_000L, "Ending"),
+            MkvChapter(1_320_000L, "Preview")
+        )
+
+        val intros = MkvChapters.findIntroSegments(chapters, 1_400_000L)
+        // Expect Prologue and Opening / Intro to be recognized
+        assertEquals(2, intros.size)
+        assertEquals("Skip intro", intros[0].label)
+        assertEquals(0L, intros[0].startMs)
+        assertEquals(90_000L, intros[0].endMs)
+
+        assertEquals("Skip intro", intros[1].label)
+        assertEquals(90_000L, intros[1].startMs)
+        assertEquals(180_000L, intros[1].endMs)
+    }
+
+    @Test
+    fun testFindRecapSegmentFromChapters() {
+        val chapters = listOf(
+            MkvChapter(0L, "Previously on Breaking Bad"),
+            MkvChapter(45_000L, "Scene 1")
+        )
+        val intros = MkvChapters.findIntroSegments(chapters, 3_000_000L)
+        assertEquals(1, intros.size)
+        assertEquals("Skip recap", intros[0].label)
+        assertEquals(0L, intros[0].startMs)
+        assertEquals(45_000L, intros[0].endMs)
+    }
 }
