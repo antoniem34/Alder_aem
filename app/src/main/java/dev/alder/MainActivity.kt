@@ -1523,7 +1523,7 @@ class MainActivity : Screen() {
 
     private fun styleListChips() {
         listFilterChips.forEach { (value, view) -> view.select(when (value) {
-            ListFilter.ALL -> "All"; ListFilter.MOVIES -> "Movies"; ListFilter.SHOWS -> "Shows"
+            ListFilter.ALL -> "All"; ListFilter.MOVIES -> "Movies"; ListFilter.SHOWS -> "Shows"; ListFilter.ANIME -> "Anime"
         }, value == listFilter) }
         listSortChips.forEach { (value, view) -> view.select(when (value) {
             ListSort.RECENT -> "Recently added"; ListSort.NAME -> "A–Z"; ListSort.UNWATCHED -> "Unwatched first"
@@ -1660,7 +1660,7 @@ class MainActivity : Screen() {
             art.alpha = 0f
             artBack.setImageDrawable(null)
             val message = if (all.isEmpty() && listFilter == ListFilter.ALL) "Titles you save with + appear here"
-                else "No ${if (listFilter == ListFilter.MOVIES) "movies" else if (listFilter == ListFilter.SHOWS) "shows" else "unwatched titles"} in My List"
+                else "No ${when (listFilter) { ListFilter.MOVIES -> "movies"; ListFilter.SHOWS -> "shows"; ListFilter.ANIME -> "anime"; ListFilter.ALL -> "titles" }} in My List"
             slot.addView(text(message, BODY, color = TEXT_2).apply { setPadding(dp(PAD), dp(30), 0, 0) })
             return
         }
