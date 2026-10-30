@@ -59,6 +59,28 @@ class ScreenDesignTest {
         assertEquals(0, changesFor(log, "1.3").size)
     }
 
+    @Test fun whatsNewHighlightsFollowEditorialOrderAcrossGroups() {
+        val log = """## Unreleased
+            |### New
+            |<!-- Spotlight -->
+            |- **Trailers.** Play a trailer.
+            |- **30 GB limit.** Choose a limit.
+            |<!-- Spotlight -->
+            |- **Live TV.** Watch a channel.
+            |### Easier to use
+            |<!-- Spotlight -->
+            |- **Direct play.** Select Play.
+            |### Fixes
+            |- **Back.** Close the panel.
+        """.trimMargin()
+        val changes = changesFor(log, "Unreleased")
+        assertEquals(listOf("Trailers", "Live TV", "Direct play"), showcaseHighlights(changes).map { it.title })
+        assertEquals(listOf("New", "New", "Easier to use"), showcaseHighlights(changes).map { it.group })
+        assertEquals(5, changes.size)
+        assertEquals(listOf("Trailers", "30 GB limit", "Live TV", "Direct play", "Back"),
+            showcaseHighlights(changes.map { Change(it.group, it.text) }).map { it.title })
+    }
+
     @Test fun debridServiceFromTagsAndLinks() {
         fun of(name: String, url: String = "https://example.com/v.mkv") = debridOf(name, url)?.let { "${it.short} ${it.cached}" }
         assertEquals("RD true", of("[RD+] Torrentio\n4k"))
