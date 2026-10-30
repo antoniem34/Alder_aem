@@ -19,7 +19,7 @@ internal object SpanishMetadata {
         if (!anime && (!meta.id.startsWith("tt") || meta.type !in listOf("movie", "series"))) return meta
         val cache = SynopsisCache(context)
         val key = SynopsisCache.key(meta.id, source, original)
-        cache.get(key)?.let { return meta.withDisplayText(null, it) }
+        cache.get(key)?.let { return meta.withSynopsis(it) }
         val translated = if (anime) {
             ApiCredentials.get(context, "deepseek")?.let { key -> runCatching { translate(key, original) }.getOrNull() }
         } else {
@@ -27,7 +27,7 @@ internal object SpanishMetadata {
         }
         if (translated.isNullOrBlank()) return meta
         cache.put(key, translated)
-        return meta.withDisplayText(null, translated)
+        return meta.withSynopsis(translated)
     }
 
     private fun tmdb(key: String, imdbId: String, type: String): String? {
