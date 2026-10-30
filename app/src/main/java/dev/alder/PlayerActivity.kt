@@ -193,7 +193,10 @@ class PlayerActivity : Screen() {
     private var lastPosition = 0L
     private var ticks = 0
 
-    private val sources by lazy { JSONArray(intent.getStringExtra("sources") ?: "[]").objects().map(Stream::read) }
+    private var sources: List<Stream> = emptyList()
+    private var resolvingStreams: Cancellable? = null
+    private lateinit var backdropArt: ImageView
+    private lateinit var backdropShade: FrameLayout
     private var at = 0 // the source playing
     private var retries = 0 // network retries on this source
     private var asHls = false // tried as HLS: live and IPTV links often hide the playlist behind a plain URL
@@ -247,7 +250,7 @@ class PlayerActivity : Screen() {
     private val loadingTask = object : Runnable {
         override fun run() {
             if (loading.visibility != View.VISIBLE || player.playbackState != Player.STATE_BUFFERING) return
-            showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources[at].label}")
+            showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources.getOrNull(at)?.label.orEmpty()}")
         }
     }
     private val startTimeout = Runnable {
@@ -259,7 +262,11 @@ class PlayerActivity : Screen() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val key = authKey ?: return finish()
-        if (sources.isEmpty()) return finish()
+        val sourcesJson = intent.getStringExtra("sources")
+        if (!sourcesJson.isNullOrBlank()) {
+            sources = JSONArray(sourcesJson).objects().map(Stream::read)
+        }
+        if (sources.isEmpty() && isTrailer) return finish()
         // Audio is decoded to PCM here unless Settings says a receiver takes Dolby and DTS: TVs report passthrough
         // (DTS-HD, TrueHD) they then can't open, and playback dies. A track that fails is swapped (onPlayerError).
         passthrough = Settings.passthrough(this)
@@ -337,8 +344,13 @@ class PlayerActivity : Screen() {
         }
         if (!isTrailer) fetchSegments()
         options = FrameLayout(this).apply { visibility = View.GONE }
+        val (bArt, bShade) = buildBackdrop()
+        backdropArt = bArt
+        backdropShade = bShade
         screen = FrameLayout(this).apply {
             addView(view, FrameLayout.LayoutParams(-1, -1))
+            addView(backdropArt, FrameLayout.LayoutParams(-1, -1))
+            addView(backdropShade, FrameLayout.LayoutParams(-1, -1))
             addView(pausedShade, FrameLayout.LayoutParams(-1, -1))
             addView(controls, FrameLayout.LayoutParams(-1, -1))
             addView(options, FrameLayout.LayoutParams(-1, -1))
@@ -404,15 +416,17 @@ class PlayerActivity : Screen() {
                 watched = true
                 retries = 0
                 hideLoading()
+                dismissBackdrop()
                 main.removeCallbacks(startTimeout)
                 player.videoFormat?.frameRate?.let(::matchFrameRate)
                 refreshBadges()
                 // Next time: the same release for this video, and the same group (release and quality) for the next episode.
-                if (!isTrailer) {
+                if (!isTrailer && sources.isNotEmpty()) {
                     val s = sources[at]
                     getSharedPreferences("sources", MODE_PRIVATE).edit()
                         .putString("file:$videoId", s.filename).putString("binge:$metaId", s.bingeGroup).apply()
                 }
+                main.postDelayed({ if (player.playWhenReady) hideControls() }, 2000)
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -432,10 +446,12 @@ class PlayerActivity : Screen() {
                     else if (askStillWatching(quiet + 1)) showStillWatching(upcoming)
                     else playNext(quiet + 1)
                 }
-                if (state == Player.STATE_BUFFERING) showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources[at].label}")
-                if (state == Player.STATE_READY && started) {
-                    hideLoading()
-                    updateMarkers()
+                if (state == Player.STATE_BUFFERING) showLoading(if (started) "Loading" else startMessage ?: "Starting · ${sources.getOrNull(at)?.label.orEmpty()}")
+                if (state == Player.STATE_READY) {
+                    if (started) {
+                        hideLoading()
+                        updateMarkers()
+                    }
                 }
                 // A seek buffers too; only stalls in plain playback count.
                 if (state == Player.STATE_BUFFERING && started && player.playWhenReady && System.currentTimeMillis() - seekedAt > 2_000) stalled()
@@ -515,8 +531,13 @@ class PlayerActivity : Screen() {
         // the start: attaching one later means loading the source again. The latest resume point asked for wins.
         var subsAnswered = isTrailer || !subsOn
         var waiting: Long? = null
+        var pendingResume: Long? = null
         fun begin(resume: Long) {
             if (prepared) return
+            if (sources.isEmpty()) {
+                pendingResume = resume
+                return
+            }
             if (!subsAnswered) { waiting = resume; return }
             load(resume)
             lastPosition = resume
@@ -529,6 +550,34 @@ class PlayerActivity : Screen() {
         if (isTrailer) {
             begin(0L)
             return
+        }
+        if (sources.isEmpty()) {
+            pauseFacts.text = "Finding sources…"
+            pauseFacts.visibility = View.VISIBLE
+            bar.isIndeterminate = true
+            showControls(null)
+            resolvingStreams = StreamsResolver.resolve(
+                context = this,
+                type = type,
+                videoId = videoId,
+                metaId = metaId,
+                authKey = key,
+                onReady = { best ->
+                    resolvingStreams = null
+                    if (isFinishing || isDestroyed) return@resolve
+                    sources = best
+                    refreshBadges()
+                    pauseFacts.text = "Starting stream…"
+                    val resumeToStart = pendingResume ?: known ?: 0L
+                    begin(resumeToStart)
+                },
+                onFallback = {
+                    resolvingStreams = null
+                    if (isFinishing || isDestroyed) return@resolve
+                    startActivity(Intent(this, StreamsActivity::class.java).putExtras(intent))
+                    finish()
+                }
+            )
         }
         val waitMs = if (pickedSub?.startsWith("addon:") == true) 3_500L else SUB_WAIT
         val stopWaiting = Runnable { subsAnswered = true; waiting?.let(::begin) }
@@ -584,6 +633,44 @@ class PlayerActivity : Screen() {
         }
     }
 
+    private fun buildBackdrop(): Pair<ImageView, FrameLayout> {
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+        val bg = intent.getStringExtra("background") ?: intent.getStringExtra("poster")
+        if (!bg.isNullOrBlank()) {
+            Images.load(bg, art, resources.displayMetrics.widthPixels)
+        }
+        val shade = FrameLayout(this).apply {
+            addView(View(context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(0xEB0E0C0A.toInt(), 0x990E0C0A.toInt(), 0x330E0C0A)
+                )
+            }, FrameLayout.LayoutParams(-1, -1))
+            addView(View(context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.BOTTOM_TOP,
+                    intArrayOf(0xF70E0C0A.toInt(), 0xB30E0C0A.toInt(), 0x000E0C0A)
+                )
+            }, FrameLayout.LayoutParams(-1, -1))
+            addView(View(context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(0x8C0E0C0A.toInt(), 0x000E0C0A)
+                )
+            }, FrameLayout.LayoutParams(-1, dp(120), Gravity.TOP))
+        }
+        return art to shade
+    }
+
+    private fun dismissBackdrop() {
+        if (::backdropArt.isInitialized && backdropArt.visibility == View.VISIBLE) {
+            backdropArt.animate().alpha(0f).setDuration(350).withEndAction { backdropArt.visibility = View.GONE }
+            backdropShade.animate().alpha(0f).setDuration(350).withEndAction { backdropShade.visibility = View.GONE }
+        }
+    }
+
     private fun buildLoading() = FrameLayout(this).apply {
         visibility = View.GONE
         addView(View(context).apply { setBackgroundColor(0x800E0C0A.toInt()) }, FrameLayout.LayoutParams(-1, -1))
@@ -595,17 +682,25 @@ class PlayerActivity : Screen() {
     }
 
     private fun showLoading(message: String) {
-        status.text = if (message == "Loading" && player.bufferedPercentage in 1..99)
-            "Loading · ${player.bufferedPercentage}%" else message
-        loading.visibility = View.VISIBLE
-        main.removeCallbacks(loadingTask)
-        if (player.playbackState == Player.STATE_BUFFERING) main.postDelayed(loadingTask, 500)
+        if (started) {
+            status.text = if (message == "Loading" && player.bufferedPercentage in 1..99)
+                "Loading · ${player.bufferedPercentage}%" else message
+            loading.visibility = View.VISIBLE
+            main.removeCallbacks(loadingTask)
+            if (player.playbackState == Player.STATE_BUFFERING) main.postDelayed(loadingTask, 500)
+        } else {
+            pauseFacts.text = message
+            pauseFacts.visibility = View.VISIBLE
+            bar.isIndeterminate = true
+            showControls(null)
+        }
     }
 
     private fun hideLoading() {
         main.removeCallbacks(loadingTask)
         loading.visibility = View.GONE
         status.text = ""
+        bar.isIndeterminate = false
     }
 
     /** A subtitle pick in the menu: the language ("" for Off) for this title's next episode and resume, and for the
@@ -623,11 +718,13 @@ class PlayerActivity : Screen() {
 
     /** Plays the current source from [position], with its own request headers (debrid proxies need them). */
     private fun load(position: Long, message: String? = null) {
+        if (sources.isEmpty()) return
         val s = sources[at]
         startAt = position
         started = false
         toldUnseekable = false
         startMessage = message ?: "Starting · ${s.label}"
+        bar.isIndeterminate = true
         showLoading(startMessage!!)
         subDelay = 0L
         textRenderer?.offsetUs = 0L
@@ -635,6 +732,7 @@ class PlayerActivity : Screen() {
         setChapterSnapMode(false)
         updateMarkers()
         refreshBadges()
+        showControls(null)
         val sourceUrl = s.url
         val sourceHeaders = s.headers
         background({
@@ -1032,6 +1130,17 @@ class PlayerActivity : Screen() {
             return super.dispatchKeyEvent(event)
         }
         val down = event.action == KeyEvent.ACTION_DOWN
+        if (!started) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (down) {
+                    resolvingStreams?.cancel()
+                    resolvingStreams = null
+                    finish()
+                }
+                return true
+            }
+            return true
+        }
         when (event.keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (down) { if (player.playWhenReady) player.pause() else player.play() }; return true }
             KeyEvent.KEYCODE_MEDIA_PLAY -> { if (down) player.play(); return true }
@@ -1187,12 +1296,20 @@ class PlayerActivity : Screen() {
         topName = text(name, SERIF_TITLE, serif = true).onArt().apply {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         }
+        val logoUrl = intent.getStringExtra("logo") ?: Images.logoFor(metaId)
+        Images.load(logoUrl, playerLogo, dp(300), urgent = true, failed = {
+            playerLogo.visibility = View.GONE
+            topName.visibility = View.VISIBLE
+        }) {
+            playerLogo.visibility = View.VISIBLE
+            topName.visibility = View.GONE
+        }
         pauseTitle = text(intent.getStringExtra("episode")?.substringAfter("  ·  ", "")?.takeIf { it.isNotBlank() }
             ?: name, SERIF_HERO, serif = true).onArt().apply {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         }
         subtitle = text(if (isTrailer) "Trailer" else intent.getStringExtra("episode")?.substringBefore("  ·  ").orEmpty(), SMALL, color = TEXT_2).onArt()
-        pauseFacts = text("", SMALL, color = TEXT_2).onArt()
+        pauseFacts = text(if (sources.isEmpty() && !isTrailer) "Finding sources…" else "", SMALL, color = TEXT_2).onArt()
         pauseBadges = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         val pauseMetaRow = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -1638,9 +1755,11 @@ class PlayerActivity : Screen() {
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         val position = if (scrubTo >= 0) scrubTo else player.currentPosition
         if (shown) {
-            bar.set(position, player.bufferedPosition, if (live) 0L else duration)
-            elapsed.text = if (live) "Live" else clock(position)
-            length.text = if (live || duration <= 0) "" else "−${clock((duration - position).coerceAtLeast(0))}"
+            if (!bar.isIndeterminate) {
+                bar.set(position, player.bufferedPosition, if (live) 0L else duration)
+                elapsed.text = if (live) "Live" else clock(position)
+                length.text = if (live || duration <= 0) "" else "−${clock((duration - position).coerceAtLeast(0))}"
+            }
             val active = if (markers.size > 1) TimelineMarkers.findCurrent(markers, position) else null
             if ((bar.isFocused || scrubTo >= 0 || chapterSnapMode) && active != null && !live) {
                 chapterPill.text = when {
@@ -1668,8 +1787,10 @@ class PlayerActivity : Screen() {
         }
         val remaining = (duration - position).coerceAtLeast(0)
         val end = if (duration > 0) SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + remaining)) else null
-        pauseFacts.text = playerPauseFacts(subtitle.text.toString(), end, isTrailer, live)
-        pauseFacts.visibility = if (pauseFacts.text.isEmpty()) View.GONE else View.VISIBLE
+        if (started) {
+            pauseFacts.text = playerPauseFacts(subtitle.text.toString(), end, isTrailer, live)
+            pauseFacts.visibility = if (pauseFacts.text.isEmpty()) View.GONE else View.VISIBLE
+        }
         main.postDelayed(progressTask, 500)
     }
 
@@ -1974,6 +2095,8 @@ class PlayerActivity : Screen() {
     }
 
     override fun onDestroy() {
+        resolvingStreams?.cancel()
+        resolvingStreams = null
         main.removeCallbacks(startTimeout)
         main.removeCallbacks(loadingTask)
         if (::status.isInitialized) player.release()
@@ -2004,7 +2127,42 @@ private class SeekBar(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = context.resources.displayMetrics.density
 
+    var isIndeterminate = false
+        set(value) {
+            if (field == value) return
+            field = value
+            if (value) startPulse() else stopPulse()
+            invalidate()
+        }
+    private var pulseFraction = 0.5f
+    private var pulseAnimator: android.animation.ValueAnimator? = null
+
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+
+    private fun startPulse() {
+        if (pulseAnimator?.isRunning == true) return
+        pulseAnimator = android.animation.ValueAnimator.ofFloat(0.15f, 0.85f).apply {
+            duration = 1100
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            addUpdateListener {
+                pulseFraction = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun stopPulse() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        pulseFraction = 0.5f
+    }
+
+    override fun onDetachedFromWindow() {
+        stopPulse()
+        super.onDetachedFromWindow()
+    }
 
     fun set(position: Long, buffered: Long, duration: Long) {
         this.position = position
@@ -2026,6 +2184,18 @@ private class SeekBar(context: Context) : View(context) {
         fun stretch(to: Float, color: Int) {
             paint.color = color
             canvas.drawRoundRect(knob, y - line / 2, to, y + line / 2, line / 2, line / 2, paint)
+        }
+        if (isIndeterminate) {
+            stretch(width - knob, 0x33F3EEE6)
+            val trackW = width - 2 * knob
+            val centerX = knob + trackW * pulseFraction
+            val halfSpan = trackW * 0.22f
+            paint.color = Screen.TUNGSTEN
+            paint.setShadowLayer(6 * d, 0f, 0f, Screen.TUNGSTEN_GLOW)
+            canvas.drawRoundRect((centerX - halfSpan).coerceAtLeast(knob), y - line / 2,
+                (centerX + halfSpan).coerceAtMost(width - knob), y + line / 2, line / 2, line / 2, paint)
+            paint.clearShadowLayer()
+            return
         }
         // A light track: the dark one vanished over a dark picture.
         stretch(width - knob, 0x40F3EEE6)

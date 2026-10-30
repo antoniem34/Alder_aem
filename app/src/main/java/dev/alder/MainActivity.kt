@@ -2198,32 +2198,14 @@ class MainActivity : Screen() {
             .putExtra("runtime", metas[item.id]?.runtime)
             .putExtra("episode", videos.firstOrNull { it.id == videoId }?.let { "S${it.season} E${it.episode}  ·  ${it.title}" })
             .putExtra("label", listOfNotNull(item.name, episode).joinToString("  ·  "))
+            .putExtra("resumeAt", item.stoppedAt)
 
         if (pick || Settings.alwaysList(this)) {
             startActivity(intent)
             return
         }
 
-        loadingStatus.text = "Finding sources…"
-        loadingView.visibility = View.VISIBLE
-        loadingView.bringToFront()
-
-        resolvingStreams = StreamsResolver.resolve(
-            context = this,
-            type = item.type,
-            videoId = videoId,
-            metaId = item.id,
-            authKey = authKey,
-            onReady = { best ->
-                cancelStreamResolution()
-                startActivity(Intent(this, PlayerActivity::class.java).putExtras(intent)
-                    .putExtra("sources", org.json.JSONArray(best.map { it.toJson() }).toString()))
-            },
-            onFallback = {
-                cancelStreamResolution()
-                startActivity(intent)
-            }
-        )
+        startActivity(Intent(this, PlayerActivity::class.java).putExtras(intent))
     }
 
     private fun openDetails(item: Item) {
