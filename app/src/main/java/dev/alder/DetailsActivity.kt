@@ -1511,6 +1511,7 @@ class DetailsActivity : Screen() {
         val nextId = next ?: m?.videos?.let { vs -> vs.getOrNull(vs.indexOfFirst { it.id == videoId } + 1)?.id }
         val video = m?.videos?.firstOrNull { it.id == videoId }
         val short = label ?: video?.let { "S${it.season} E${it.episode}" }
+        val resumeAt = if (startOver) 0L else item?.let { Library.resumeAt(it, videoId) } ?: 0L
         val intent = Intent(this, StreamsActivity::class.java)
             .putExtra("type", type).putExtra("id", metaId).putExtra("name", m?.name ?: name).putExtra("poster", m?.poster ?: poster)
             .putExtra("videoId", videoId).putExtra("nextVideoId", nextId).putExtra("startOver", startOver).putExtra("pick", pick)
@@ -1520,32 +1521,14 @@ class DetailsActivity : Screen() {
             .putExtra("logo", m?.logo).putExtra("still", video?.thumbnail).putExtra("runtime", m?.runtime)
             .putExtra("blurStill", Settings.blurThumbnails(this) && video != null && video.id !in Library.watched(item, m?.videos.orEmpty()))
             .putExtra("episode", video?.let { v -> listOfNotNull("S${v.season} E${v.episode}", v.title.takeIf { it.isNotBlank() }).joinToString("  ·  ") })
+            .putExtra("resumeAt", resumeAt)
 
         if (pick || Settings.alwaysList(this)) {
             startActivity(intent)
             return
         }
 
-        loadingStatus.text = "Finding sources…"
-        loadingView.visibility = View.VISIBLE
-        loadingView.bringToFront()
-
-        resolvingStreams = StreamsResolver.resolve(
-            context = this,
-            type = type,
-            videoId = videoId,
-            metaId = metaId,
-            authKey = authKey,
-            onReady = { best ->
-                cancelStreamResolution()
-                startActivity(Intent(this, PlayerActivity::class.java).putExtras(intent)
-                    .putExtra("sources", org.json.JSONArray(best.map { it.toJson() }).toString()))
-            },
-            onFallback = {
-                cancelStreamResolution()
-                startActivity(intent)
-            }
-        )
+        startActivity(Intent(this, PlayerActivity::class.java).putExtras(intent))
     }
 
     override fun onPause() {

@@ -397,4 +397,14 @@ class ScreenDesignTest {
             playerBadges(dtsRemuxTb, audioLanguage = "id", audioChannels = 6, subtitleLanguage = "eng"),
         )
     }
+
+    @Test fun playerBadgesEmptyWhenNoStreamOrTracks() {
+        assertEquals(emptyList<PlayerBadge>(), playerBadges(null))
+    }
+
+    @Test fun playerPauseFactsHandlesLoadingStates() {
+        assertEquals("", playerPauseFacts("", null, isTrailer = false, isLive = false))
+        assertEquals("S1 E1", playerPauseFacts("S1 E1", null, isTrailer = false, isLive = false))
+        assertEquals("S1 E1  ·  Ends 10:00 PM", playerPauseFacts("S1 E1", "10:00 PM", isTrailer = false, isLive = false))
+    }
 }
