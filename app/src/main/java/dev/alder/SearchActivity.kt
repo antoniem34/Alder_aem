@@ -514,9 +514,9 @@ class SearchActivity : Screen() {
                     .filterNot { isAddonMessage(it.name) }
                     .distinctBy { it.type to it.id }
                 val ranked = rankSearchTitles(found, query) { it.name }
-                val sections = linkedMapOf("Movies" to ranked.filter { it.type == "movie" }.take(PER_TYPE),
-                    "Shows" to ranked.filter { it.type == "series" }.take(PER_TYPE),
-                    "Anime" to ranked.filter { it.type == "anime" }.take(PER_TYPE)).filterValues { it.isNotEmpty() }
+                val sections = linkedMapOf("Movies" to ranked.filter { it.type == "movie" && !it.id.startsWith("kitsu:") }.take(PER_TYPE),
+                    "Shows" to ranked.filter { it.type == "series" && !it.id.startsWith("kitsu:") }.take(PER_TYPE),
+                    "Anime" to ranked.filter { it.type == "anime" || it.id.startsWith("kitsu:") }.take(PER_TYPE)).filterValues { it.isNotEmpty() }
                 if (sections.isNotEmpty()) render(sections, query, moveFocus && (final || completed == addons.size))
                 else if (final || completed == addons.size) {
                     results.removeAllViews()
