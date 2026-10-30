@@ -26,7 +26,7 @@ object WatchNext {
         val logoUri = "android.resource://${context.packageName}/drawable/logo_transparent"
         items.take(MAX).forEach { item ->
             val state = item.optJSONObject("state") ?: JSONObject()
-            val series = item.optString("type") == "series"
+            val series = isEpisodicType(item.optString("type"))
             // A series' video id is "tt123:1:3": season, then episode.
             val parts = state.optString("video_id").split(":")
             // Wide, cinematic art for the launcher's wide cards: the meta addon's backdrop (TMDB's, from AIOMetadata or

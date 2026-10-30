@@ -101,7 +101,7 @@ class Addon(val descriptor: JSONObject) {
         require(query.isNotBlank())
         val catalogs = manifest.optJSONArray("catalogs").objects()
             .filter { c ->
-                c.optString("type") in listOf("movie", "series") &&
+                c.optString("type") in listOf("movie", "series", "anime") &&
                     "search" in (c.optJSONArray("extraRequired").strings() + c.optJSONArray("extraSupported").strings() +
                         c.optJSONArray("extra").objects().map { it.optString("name") }) &&
                     c.optJSONArray("extraRequired").strings().all { it == "search" } &&
@@ -291,6 +291,9 @@ class CastMember(
         }
     }
 }
+
+/** Stremio represents anime as a separate type, but it is episodic like series. */
+internal fun isEpisodicType(type: String) = type == "series" || type == "anime"
 
 class Video(val id: String, val title: String, val season: Int, val episode: Int, val thumbnail: String?,
             val overview: String?, val released: String?)

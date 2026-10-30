@@ -141,9 +141,9 @@ internal fun logoTint(pixels: IntArray): Int? {
 //    where you are and Resume, moving on to the next every ADVANCE. OK resumes; any other key returns to where you were.
 //    The TV's own screensaver takes over later (10 min on the test TV), so nothing stays still for hours.
 class MainActivity : Screen() {
-    private enum class Page(val label: String) { HOME("Home"), SHOWS("Shows"), MOVIES("Movies"), LIVE("Live"), LIBRARY("My List") }
+    private enum class Page(val label: String) { HOME("Home"), ANIME("Anime"), SHOWS("Shows"), MOVIES("Movies"), LIVE("Live"), LIBRARY("My List") }
     private enum class Mode { CINEMA, BROWSE }
-    private enum class ListFilter { ALL, MOVIES, SHOWS }
+    private enum class ListFilter { ALL, MOVIES, SHOWS, ANIME }
     private enum class ListSort { RECENT, NAME, UNWATCHED }
 
     private lateinit var profile: Profile
@@ -159,7 +159,7 @@ class MainActivity : Screen() {
     private var lastListChip: TextView? = null
     private val navItems = mutableMapOf<Page, TextView>()
     private var page = Page.HOME
-    private val Page.isCatalog get() = this == Page.SHOWS || this == Page.MOVIES
+    private val Page.isCatalog get() = this == Page.ANIME || this == Page.SHOWS || this == Page.MOVIES
     /** One row of cards under the focused title's art: every page but My List's grid. */
     private val Page.isBrowse get() = this == Page.HOME || isCatalog || this == Page.LIVE
     private var mode = Mode.BROWSE
@@ -429,6 +429,7 @@ class MainActivity : Screen() {
             ?: when (Settings.startTab(this)) {
                 "movies" -> if (Settings.showMovies(this)) Page.MOVIES else Page.HOME
                 "shows" -> if (Settings.showShows(this)) Page.SHOWS else Page.HOME
+                "anime" -> if (Settings.showAnime(this)) Page.ANIME else Page.HOME
                 "library" -> Page.LIBRARY
                 else -> Page.HOME
             }
@@ -486,11 +487,11 @@ class MainActivity : Screen() {
      */
     private fun warmPages() = background({
         Stremio.savedLibrary(profile.authKey).orEmpty()
-            .filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series") }
+            .filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series", "anime") }
             .sortedByDescending { it.optString("_ctime") }.take(LIST_COLUMNS * 3)
             .forEach { libraryItem(it).poster?.let { url -> Images.prefetch(url, (dp(LIST_W) * CARD_GROW).toInt()) } }
         val catalogs = Stremio.savedAddons(profile.authKey).orEmpty().flatMap { it.catalogs }
-        for (p in listOf(Page.SHOWS, Page.MOVIES)) {
+        for (p in listOf(Page.ANIME, Page.SHOWS, Page.MOVIES)) {
             val shelves = catalogs.mapNotNull { c -> shelf(c)?.takeIf { it.page == p }?.let { c to it } }.sortedBy { it.second.rank }
             sections(p, shelves).forEachIndexed { i, (title, sources, picked) ->
                 val key = catalogAnswerKey(p.label, title, picked, sources.map { (c, _) ->
@@ -509,6 +510,7 @@ class MainActivity : Screen() {
     private var lastFeaturedHome = false
     private var lastShowMovies = true
     private var lastShowShows = true
+    private var lastShowAnime = true
     private var lastShowLive = true
     private var lastHiddenRows: Set<String> = emptySet()
 
@@ -519,15 +521,17 @@ class MainActivity : Screen() {
         val featured = Settings.featuredHome(this)
         val showMovies = Settings.showMovies(this)
         val showShows = Settings.showShows(this)
+        val showAnime = Settings.showAnime(this)
         val showLive = Settings.showLive(this)
         val hiddenRows = Settings.hiddenRows(this)
         val hiddenRowsChanged = hiddenRows != lastHiddenRows
         lastHiddenRows = hiddenRows
         lastShowMovies = showMovies
         lastShowShows = showShows
+        lastShowAnime = showAnime
         lastShowLive = showLive
         applyNavVisibility()
-        if ((page == Page.MOVIES && !showMovies) || (page == Page.SHOWS && !showShows) || (page == Page.LIVE && !showLive)) {
+        if ((page == Page.MOVIES && !showMovies) || (page == Page.SHOWS && !showShows) || (page == Page.ANIME && !showAnime) || (page == Page.LIVE && !showLive)) {
             showPage(Page.HOME)
             return
         }
@@ -762,6 +766,7 @@ class MainActivity : Screen() {
                 if (p == Page.LIVE) visibility = View.GONE
                 if (p == Page.MOVIES && !Settings.showMovies(this@MainActivity)) visibility = View.GONE
                 if (p == Page.SHOWS && !Settings.showShows(this@MainActivity)) visibility = View.GONE
+                if (p == Page.ANIME && !Settings.showAnime(this@MainActivity)) visibility = View.GONE
             }.inNav()
         }
         nav.background = glassOver(nav, NAV_R + 4)
@@ -790,6 +795,7 @@ class MainActivity : Screen() {
     private fun applyNavVisibility() {
         navItems[Page.MOVIES]?.visibility = if (Settings.showMovies(this) || page == Page.MOVIES) View.VISIBLE else View.GONE
         navItems[Page.SHOWS]?.visibility = if (Settings.showShows(this) || page == Page.SHOWS) View.VISIBLE else View.GONE
+        navItems[Page.ANIME]?.visibility = if (Settings.showAnime(this) || page == Page.ANIME) View.VISIBLE else View.GONE
         val live = lastAddons.any { a -> a.catalogs.any { shelf(it)?.page == Page.LIVE } }
         navItems[Page.LIVE]?.visibility = if ((live && Settings.showLive(this)) || page == Page.LIVE) View.VISIBLE else View.GONE
     }
@@ -1082,7 +1088,7 @@ class MainActivity : Screen() {
         val meta = metas[item.id]
         val year = meta?.year ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
         val genre = meta?.genres?.firstOrNull() ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == false && !it.startsWith("IMDb") }?.substringBefore(",")
-        val length = if (item.type == "series") meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
+        val length = if (isEpisodicType(item.type)) meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
             else meta?.runtime
         // A show in progress describes its next episode, so the line names that episode rather than the show.
         val code = item.left?.split(DOT)?.firstOrNull { it.startsWith("S") && " E" in it }
@@ -1123,7 +1129,7 @@ class MainActivity : Screen() {
         val stop = item.stoppedAt?.takeIf { it > 0 }?.let { "Stopped at ${android.text.format.DateUtils.formatElapsedTime(it / 1000)}" }
         val meta = metas[item.id]
         val detail = if (page == Page.HOME) meta?.year ?: item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
-            else if (item.type == "series") meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
+            else if (isEpisodicType(item.type)) meta?.videos?.map { it.season }?.filter { it > 0 }?.distinct()?.size?.takeIf { it > 0 }?.let(::seasons)
             else meta?.runtime
         cardCaption.text = listOfNotNull(remaining, stop).takeIf { it.isNotEmpty() }?.joinToString(DOT)
             ?: listOfNotNull(item.name, detail).joinToString(DOT)
@@ -1158,7 +1164,7 @@ class MainActivity : Screen() {
     private fun facts(item: Item): String {
         val year = item.facts.firstOrNull { it.firstOrNull()?.isDigit() == true }
         val genre = item.facts.firstOrNull { it.firstOrNull()?.isDigit() == false && !it.startsWith("IMDb") }?.substringBefore(",")
-        return listOfNotNull(if (item.type == "series") "Series" else "Movie", year, genre).joinToString(DOT)
+        return listOfNotNull(when (item.type) { "series" -> "Series"; "anime" -> "Anime"; else -> "Movie" }, year, genre).joinToString(DOT)
     }
 
     /** The episode Continue Watching points at, once the title's details are in. */
@@ -1309,10 +1315,13 @@ class MainActivity : Screen() {
             }.sortedBy { it.second.rank }
             val catalogs = shelves.map { it.first }
             if (catalogs.isEmpty()) {
-                val what = when (p) { Page.MOVIES -> "movie"; Page.LIVE -> "live"; else -> "show" }
+                val what = when (p) { Page.MOVIES -> "movie"; Page.ANIME -> "anime"; Page.LIVE -> "live"; else -> "show" }
                 // Home holds only Continue and Watchly's picks, so a new account sees nothing there without a word.
-                content.addView(text(if (p == Page.HOME) "Picks for you show here once Watchly is installed on this profile's Stremio account. Shows and Movies have more to browse."
-                    else "None of your addons has $what catalogs. Add one (AIOMetadata, Cinemeta) in Stremio.", BODY, color = TEXT_3)
+                content.addView(text(when (p) {
+                    Page.HOME -> "Picks for you show here once Watchly is installed on this profile's Stremio account. Shows and Movies have more to browse."
+                    Page.ANIME -> "No anime catalogs yet. Install Anime Kitsu in Stremio and reload add-ons in Settings."
+                    else -> "None of your addons has $what catalogs. Add one in Stremio."
+                }, BODY, color = TEXT_3)
                     .apply { setPadding(dp(PAD), 0, dp(PAD), 0) })
             }
             val genres = catalogGenres(catalogs.flatMap { it.genres })
@@ -1497,7 +1506,7 @@ class MainActivity : Screen() {
             line.addView(control, LinearLayout.LayoutParams(-2, dp(CHIP_H)).apply { if (line.childCount > 0) marginStart = dp(6) })
             return control
         }
-        listOf(ListFilter.ALL to "All", ListFilter.MOVIES to "Movies", ListFilter.SHOWS to "Shows").forEach { (value, label) ->
+        listOf(ListFilter.ALL to "All", ListFilter.MOVIES to "Movies", ListFilter.SHOWS to "Shows", ListFilter.ANIME to "Anime").forEach { (value, label) ->
             listFilterChips[value] = add(label, value == listFilter) {
                 if (listFilter != value) { listFilter = value; styleListChips(); redrawLibrary() }
             }
@@ -1514,7 +1523,7 @@ class MainActivity : Screen() {
 
     private fun styleListChips() {
         listFilterChips.forEach { (value, view) -> view.select(when (value) {
-            ListFilter.ALL -> "All"; ListFilter.MOVIES -> "Movies"; ListFilter.SHOWS -> "Shows"
+            ListFilter.ALL -> "All"; ListFilter.MOVIES -> "Movies"; ListFilter.SHOWS -> "Shows"; ListFilter.ANIME -> "Anime"
         }, value == listFilter) }
         listSortChips.forEach { (value, view) -> view.select(when (value) {
             ListSort.RECENT -> "Recently added"; ListSort.NAME -> "A–Z"; ListSort.UNWATCHED -> "Unwatched first"
@@ -1563,11 +1572,12 @@ class MainActivity : Screen() {
      * Where a catalog's row goes and what it's called, like Netflix: Home is what you're watching and what it led to
      * ("Because you watched…"); everything else sits on Movies or Shows by type, without the addon's name or a type
      * suffix. Personal picks come first (rank 0–1), then what's popular (2), then themed lists (3). TV channels, sport
-     * and events go to Live, one row per catalog under its own name; other types (anime, video channels) are left out.
+     * and events go to Live, one row per catalog under its own name; anime catalogs have their own tab.
      */
     private fun shelf(c: Addon.Catalog): Shelf? {
         val typePage = when {
             c.type == "movie" -> Page.MOVIES
+            c.type == "anime" -> Page.ANIME
             c.type == "series" -> Page.SHOWS
             isLiveType(c.type) -> return Shelf(Page.LIVE, tidy(c.name), 3)
             else -> return null
@@ -1619,8 +1629,17 @@ class MainActivity : Screen() {
     }
 
     private fun showLibrary(slot: FrameLayout) {
-        val all = library.filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series") }
-            .filter { listFilter == ListFilter.ALL || it.optString("type") == if (listFilter == ListFilter.MOVIES) "movie" else "series" }
+        val all = library.filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series", "anime") }
+            .filter { item ->
+                val type = item.optString("type")
+                val anime = type == "anime" || item.optString("_id").startsWith("kitsu:")
+                when (listFilter) {
+                    ListFilter.ALL -> true
+                    ListFilter.MOVIES -> type == "movie"
+                    ListFilter.SHOWS -> type == "series" && !anime
+                    ListFilter.ANIME -> anime
+                }
+            }
         val ordered = when (listSort) {
             ListSort.RECENT -> all.sortedByDescending { it.optString("_ctime") }
             ListSort.NAME -> all.sortedBy { it.optString("name").lowercase() }
@@ -1641,7 +1660,7 @@ class MainActivity : Screen() {
             art.alpha = 0f
             artBack.setImageDrawable(null)
             val message = if (all.isEmpty() && listFilter == ListFilter.ALL) "Titles you save with + appear here"
-                else "No ${if (listFilter == ListFilter.MOVIES) "movies" else if (listFilter == ListFilter.SHOWS) "shows" else "unwatched titles"} in My List"
+                else "No ${when (listFilter) { ListFilter.MOVIES -> "movies"; ListFilter.SHOWS -> "shows"; ListFilter.ANIME -> "anime"; ListFilter.ALL -> "titles" }} in My List"
             slot.addView(text(message, BODY, color = TEXT_2).apply { setPadding(dp(PAD), dp(30), 0, 0) })
             return
         }
@@ -2188,7 +2207,7 @@ class MainActivity : Screen() {
         val videoId = item.videoId ?: item.id
         val videos = metas[item.id]?.videos.orEmpty()
         val next = videos.getOrNull(videos.indexOfFirst { it.id == videoId } + 1)?.takeIf { videos.any { it.id == videoId } }
-        val episode = item.left?.substringBefore(" · ")?.takeIf { item.type == "series" && it.startsWith("S") }
+        val episode = item.left?.substringBefore(" · ")?.takeIf { isEpisodicType(item.type) && it.startsWith("S") }
         val intent = Intent(this, StreamsActivity::class.java)
             .putExtra("type", item.type).putExtra("id", item.id).putExtra("name", item.name).putExtra("poster", item.poster)
             .putExtra("videoId", videoId).putExtra("nextVideoId", next?.id).putExtra("pick", pick)

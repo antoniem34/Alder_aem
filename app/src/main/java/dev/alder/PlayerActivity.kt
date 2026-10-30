@@ -510,7 +510,7 @@ class PlayerActivity : Screen() {
                     }
                     val upcoming = nextVideo()
                     // shortcut: sub-two-minute series streams are treated as addon placeholders; revisit for short-form shows.
-                    if (type == "series" && !plausibleEpisode(player.duration)) {
+                    if (isEpisodicType(type) && !plausibleEpisode(player.duration)) {
                         started = false // retry from the original resume point, not the placeholder's short ending
                         next("source ended as a short placeholder")
                     } else if (upcoming == null || upNextDismissed || stopAfter) finish()
@@ -931,7 +931,7 @@ class PlayerActivity : Screen() {
         // Nothing is saved until a picture shows: a source that never starts would otherwise reset the resume point.
         // Live TV has no progress to keep, nor does a channel or event whose stream doesn't say it's live.
         if (isTrailer || !started || player.isCurrentMediaItemLive || isLiveType(type)) return
-        if (type == "series" && !plausibleEpisode(player.duration)) return
+        if (isEpisodicType(type) && !plausibleEpisode(player.duration)) return
         val item = item ?: return
         val position = player.currentPosition
         val duration = player.duration.takeIf { it > 0 } ?: return
@@ -1029,7 +1029,7 @@ class PlayerActivity : Screen() {
     }
 
     private fun showUpNext() {
-        if (type == "series" && !plausibleEpisode(player.duration)) return
+        if (isEpisodicType(type) && !plausibleEpisode(player.duration)) return
         if (stopAfter || stillPanel.visibility == View.VISIBLE) return // Sleep: After this episode
         val next = nextVideo() ?: return
         if (offeringLower) dismissStall()
@@ -1146,7 +1146,7 @@ class PlayerActivity : Screen() {
         when {
             stopAfter -> { stopAfter = false; setSleepAt(System.currentTimeMillis() + SLEEP_TIMER) }
             sleepAt > 0 -> setSleepAt(0)
-            type == "series" -> stopAfter = true
+            isEpisodicType(type) -> stopAfter = true
             else -> setSleepAt(System.currentTimeMillis() + SLEEP_TIMER)
         }
         intent.putExtra("stopAfter", stopAfter)
@@ -1277,7 +1277,7 @@ class PlayerActivity : Screen() {
 
     private fun fetchSegments() {
         val parts = videoId.split(":")
-        if (type != "series" || !metaId.startsWith("tt") || parts.size < 3) return
+        if (!isEpisodicType(type) || !metaId.startsWith("tt") || parts.size < 3) return
         background({
             val json = JSONObject(Http.get("https://api.introdb.app/segments?imdb_id=${parts[0]}&season=${parts[1]}&episode=${parts[2]}"))
             fun part(name: String) = json.optJSONObject(name)?.let { seg ->
@@ -2764,7 +2764,7 @@ class PlayerActivity : Screen() {
         main.removeCallbacks(skipTask)
         main.removeCallbacks(loadingTask)
         player.pause()
-        if (isTrailer || !watched || player.isCurrentMediaItemLive || isLiveType(type) || type == "series" && !plausibleEpisode(player.duration)) return
+        if (isTrailer || !watched || player.isCurrentMediaItemLive || isLiveType(type) || isEpisodicType(type) && !plausibleEpisode(player.duration)) return
         record()
         // The player's own episode list first: Home's Resume passes no next episode when the title's details weren't in
         // yet, and a finished episode with no next one drops the title out of Continue Watching.
