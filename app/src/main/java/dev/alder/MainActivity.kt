@@ -1568,7 +1568,7 @@ class MainActivity : Screen() {
     private fun shelf(c: Addon.Catalog): Shelf? {
         val typePage = when {
             c.type == "movie" -> Page.MOVIES
-            c.type == "series" -> Page.SHOWS
+            c.type == "series" || c.type == "anime" -> Page.SHOWS
             isLiveType(c.type) -> return Shelf(Page.LIVE, tidy(c.name), 3)
             else -> return null
         }
