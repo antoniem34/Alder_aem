@@ -217,7 +217,14 @@ fun List<Addon>.savedMeta(type: String, id: String): Meta? =
 
 private val metaPool = java.util.concurrent.Executors.newCachedThreadPool()
 
-class Meta(json: JSONObject) {
+class Meta(private val json: JSONObject) {
+    /** Display-only translation; original JSON remains the authority for IDs and episode ordering. */
+    fun withDisplayText(title: String?, overview: String?): Meta {
+        val copy = JSONObject(json.toString())
+        if (!title.isNullOrBlank()) copy.put("name", title)
+        if (!overview.isNullOrBlank()) copy.put("description", overview)
+        return Meta(copy)
+    }
     val id: String = json.getString("id")
     val type: String = json.optString("type")
     val name: String = json.optString("name")

@@ -189,7 +189,9 @@ class DetailsActivity : Screen() {
                 if (meta == null) saved?.let(::show)
             }
         }
-        background({ Stremio.addons(key).meta(type, metaId, together = true) }) { result ->
+        background({
+            Stremio.addons(key).meta(type, metaId, together = true)?.let(SpanishMetadata::localized)
+        }) { result ->
             val fresh = result.getOrNull()
             if (fresh != null) show(fresh)
             else if (meta == null) showHero(null)

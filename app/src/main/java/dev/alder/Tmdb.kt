@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object Tmdb {
     private const val KEY = "844dba0bfd8f3a4f3799f6130ef9e335"
+    internal val apiKey get() = KEY
     private const val BASE = "https://api.themoviedb.org/3"
     private val memoryCache = ConcurrentHashMap<String, List<CastMember>>()
     private val creditsCache = ConcurrentHashMap<String, Set<String>>()
