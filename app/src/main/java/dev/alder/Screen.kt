@@ -106,7 +106,7 @@ abstract class Screen : Activity() {
         // Disk cache for pictures (and anything else whose server allows caching), and last time's answers.
         android.net.http.HttpResponseCache.install(java.io.File(cacheDir, "http"), 250L * 1024 * 1024)
         Http.saved = java.io.File(cacheDir, "answers")
-        Http.userAgent = "Alder/${Updates.mine(this)} (Android ${android.os.Build.VERSION.RELEASE}; ${android.os.Build.MODEL})"
+        Http.userAgent = "AEMMedia/${Updates.mine(this)} (Android ${android.os.Build.VERSION.RELEASE}; ${android.os.Build.MODEL})"
     }
 
     override fun onDestroy() {
@@ -115,7 +115,7 @@ abstract class Screen : Activity() {
     }
 
     /**
-     * Downloads [release] and hands it to Android's installer. Alder closes to be replaced and doesn't open again by
+     * Downloads [release] and hands it to Android's installer. AEM Media closes to be replaced and doesn't open again by
      * itself, so the viewer is told first. Without permission to install apps, Android's page for it opens, and the
      * install goes on when the viewer comes back with it allowed; a TV without that page gets the steps instead.
      */
@@ -124,14 +124,14 @@ abstract class Screen : Activity() {
             pendingInstall = release
             if (!Updates.askToInstall(this)) {
                 pendingInstall = null
-                choose("Allow Alder to install updates", listOf("OK"),
-                    "On Fire TV: Settings › My Fire TV › Developer options › Install unknown apps, then turn on Alder. " +
-                        "On Google TV: Settings › Apps › Security & restrictions › Unknown sources, then turn on Alder. " +
+                choose("Allow AEM Media to install updates", listOf("OK"),
+                    "On Fire TV: Settings › My Fire TV › Developer options › Install unknown apps, then turn on AEM Media. " +
+                        "On Google TV: Settings › Apps › Security & restrictions › Unknown sources, then turn on AEM Media. " +
                         "Then select Install again.") {}
             }
             return
         }
-        android.widget.Toast.makeText(this, "Downloading Alder ${release.version}… Alder closes to update. Open it again after.",
+        android.widget.Toast.makeText(this, "Downloading AEM Media ${release.version}… AEM Media closes to update. Open it again after.",
             android.widget.Toast.LENGTH_LONG).show()
         background({ Updates.install(applicationContext, release) }) { r ->
             if (r.isFailure) choose("Couldn't download the update", listOf("OK"), "Check the TV's connection and try again from Settings › About.") {}
@@ -410,12 +410,12 @@ abstract class Screen : Activity() {
     /** A hairline under a list row. */
     protected fun divider() = View(this).apply { setBackgroundColor(GLASS_EDGE) }
 
-    /** Alder's mark beside the serif "Alder": top left of the picker and sign-in, and Settings › About. */
+    /** AEM Media's mark beside the serif "AEM Media": top left of the picker and sign-in, and Settings › About. */
     protected fun brand(size: Float = WORDMARK) = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
         val mark = (size * 1.3f).toInt() // the mark's art fills about two thirds of its square
         addView(ImageView(context).apply { setImageResource(R.drawable.logo_transparent) }, LinearLayout.LayoutParams(dp(mark), dp(mark)))
-        addView(text("Alder", size, serif = true).onArt(), wrap().apply { marginStart = dp(4) })
+        addView(text("AEM Media", size, serif = true).onArt(), wrap().apply { marginStart = dp(4) })
     }
 
     /** The IMDb tag beside a rating, as tall as the letters. */
@@ -904,7 +904,7 @@ abstract class Screen : Activity() {
         const val PANEL_W = 0.573f // share of the screen a list panel takes, beside its side note
         const val DOT = "  ·  "
 
-        const val WORDMARK = 22f // sp, "Alder" beside its mark
+        const val WORDMARK = 22f // sp, "AEM Media" beside its mark
         const val SERIF_HERO = 38f
         const val SERIF_TITLE = 28.5f
         const val SERIF_NAME = 19f
