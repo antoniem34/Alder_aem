@@ -499,7 +499,7 @@ class DetailsActivity : Screen() {
     // ---------- glass and episode guide ----------
 
     private fun glassPane() = FrameLayout(this).apply {
-        background = glassOver(this, 14, shade = PANE_SHADE)
+        background = glassOver(this, 14, shade = FROST_DENSE)
         clipToOutline = true
         outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(view: View, outline: android.graphics.Outline) =
@@ -1204,7 +1204,7 @@ class DetailsActivity : Screen() {
                 isFocusable = true
                 minimumHeight = dp(28)
                 setPadding(dp(4), dp(4), dp(11), dp(4))
-                background = glass(14)
+                background = null
 
                 val avatarSize = dp(20)
                 val avatarFrame = FrameLayout(context).apply {
@@ -1246,7 +1246,7 @@ class DetailsActivity : Screen() {
                 addView(nameView, wrap())
 
                 setOnFocusChangeListener { v, has ->
-                    v.background = glass(14, has)
+                    v.background = if (has) glass(14, true) else null
                     v.grow(has, CHIP_GROW).start()
                     nameView.setTextColor(if (has) TEXT else TEXT_2)
                 }
@@ -1266,10 +1266,10 @@ class DetailsActivity : Screen() {
                 includeFontPadding = false
                 minHeight = dp(28)
                 setPadding(dp(12), dp(4), dp(12), dp(4))
-                background = glass(14)
+                background = null
                 isFocusable = true
                 setOnFocusChangeListener { v, has ->
-                    v.background = glass(14, has)
+                    v.background = if (has) glass(14, true) else null
                     setTextColor(if (has) TEXT else TEXT_2)
                     v.grow(has, CHIP_GROW).start()
                 }
@@ -1627,7 +1627,6 @@ class DetailsActivity : Screen() {
     }
 
     private companion object {
-        const val PANE_SHADE = 0.55f // the episode panel's frost, darkened to the mock's smoked glass
         const val GUIDE_ART = 0.6f // the film's brightness behind the episode guide
         const val STARTED = 60_000L // ms watched before a title counts as started
     }

@@ -42,7 +42,7 @@ class AddonsActivity : Screen() {
         // A shaded pane so the note stays readable over bright art.
         help = column(Gravity.START, helpName, helpBody.marginTop(8)).apply {
             setPadding(dp(16), dp(14), dp(16), dp(16))
-            background = glassOver(this, 14, shade = 0.35f)
+            background = glassOver(this, 14, shade = FROST_READING)
             visibility = View.INVISIBLE
         }
         val scroll = ScrollView(this).apply {
@@ -54,7 +54,7 @@ class AddonsActivity : Screen() {
             addView(keyHint("OK", "Move or remove"))
         }
         val panel = FrameLayout(this).apply {
-            background = glassOver(this, 14)
+            background = glassOver(this, 14, shade = FROST_READING)
             addView(scroll, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(42) })
             addView(footer, FrameLayout.LayoutParams(-1, dp(36), Gravity.BOTTOM).apply {
                 leftMargin = dp(24); bottomMargin = dp(8)

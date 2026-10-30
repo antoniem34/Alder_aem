@@ -279,6 +279,10 @@ abstract class Screen : Activity() {
         return LayerDrawable(arrayOf(face, Highlight(dp(radiusDp).toFloat())))
     }
 
+    /** A stable reading surface over moving video, which cannot use the artwork frost. */
+    protected fun videoGlass(radiusDp: Int): Drawable =
+        LayerDrawable(arrayOf(rounded(VIDEO_GLASS_BASE, radiusDp), glass(radiusDp)))
+
     /** The glass's top highlight, like CSS `inset 0 1px 0`: a 1 dp sliver that follows the corners and thins out down
      *  their curve, rather than a flat bar that stops short of them and reads as a stray line. */
     private inner class Highlight(private val radius: Float) : Drawable() {
@@ -625,7 +629,7 @@ abstract class Screen : Activity() {
         }
         dialog.setContentView(android.widget.ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
-            background = glassOver(this, 16) // the episode list's glass, over the screen's art
+            background = glassOver(this, 16, shade = FROST_READING)
             addView(list)
         })
         dialog.window?.apply {
@@ -685,7 +689,7 @@ abstract class Screen : Activity() {
         }, LinearLayout.LayoutParams(-2, dp(CHIP_H + 6)).apply { marginStart = dp(8) })
         // The glass on a frame that clips to its rounded shape, so lines scrolled past the top don't show over its edge.
         dialog.setContentView(FrameLayout(this).apply {
-            background = glassOver(this, 16)
+            background = glassOver(this, 16, shade = FROST_DENSE)
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: android.graphics.Outline) =
                     outline.setRoundRect(0, 0, view.width, view.height, dp(16).toFloat())
@@ -713,7 +717,7 @@ abstract class Screen : Activity() {
         pill("Try again").apply { setOnClickListener { retry() } }.marginTop(16),
     ).apply {
         setPadding(dp(18), dp(18), dp(18), dp(18))
-        background = glassOver(this, 14)
+        background = glassOver(this, 14, shade = FROST_READING)
     }
 
     // House Lights' shared values. Screens keep their layout and content; the helpers above own component styling.
@@ -729,6 +733,8 @@ abstract class Screen : Activity() {
         const val TILE_RADIUS = 8
         const val GLASS_INSET = 28 // dp a glass panel sits in from the screen's edges
         const val FROST_W = 360 // px the art is shrunk to before the blur: wider is less blur (240 read as fog, 480 as smeared)
+        const val FROST_READING = 0.35f
+        const val FROST_DENSE = 0.55f
         const val HERO_W = 520 // dp: a title's block on Home and its page, half the screen so the story reads in full lines
         const val BUTTON_H = 34
         const val SHORT_LIST = 5 // "What's new" entries shown before See all changes
@@ -770,6 +776,8 @@ abstract class Screen : Activity() {
         const val GLASS_FOCUSED = 0x3DF3EEE6 // a lit face: with no rim, the fill alone carries focus
         const val GLASS_EDGE = 0x24FFF0DC
         const val GLASS_HIGHLIGHT = 0x4DFFF5E6
+        const val VIDEO_GLASS_BASE = 0xD90E0C0A.toInt()
+        const val VIDEO_CONTROL_BASE = 0xA60E0C0A.toInt()
         const val ROW_FOCUSED = 0x29F3EEE6
         const val PROGRESS_TRACK = 0x4DFFFFFF // light enough that a short fill still reads as a bar, not a dash
         internal val pool = Executors.newFixedThreadPool(6)
