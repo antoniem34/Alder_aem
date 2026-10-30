@@ -34,12 +34,12 @@ object Tmdb {
                 for (i in 0 until crewArray.length()) {
                     val item = crewArray.optJSONObject(i) ?: continue
                     val job = item.optString("job").trim()
-                    val department = item.optString("department").trim()
                     val isDir = if (isMovie) {
                         job.equals("Director", ignoreCase = true)
                     } else {
-                        job.equals("Director", ignoreCase = true) || job.equals("Creator", ignoreCase = true) ||
-                            department.equals("Directing", ignoreCase = true)
+                        job.equals("Director", ignoreCase = true) ||
+                            job.equals("Series Director", ignoreCase = true) ||
+                            job.equals("Creator", ignoreCase = true)
                     }
                     if (isDir) {
                         val name = item.optString("name").trim().takeIf { it.isNotBlank() } ?: continue

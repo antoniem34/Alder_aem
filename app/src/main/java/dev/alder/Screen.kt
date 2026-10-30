@@ -296,7 +296,7 @@ abstract class Screen : Activity() {
         return shape.apply { op(lower, Path.Op.DIFFERENCE) }
     }
 
-    /** The warm-white primary action; focus lifts and grows it. */
+    /** The warm-white primary action; focus lifts and grows it with a centered tungsten glow. */
     protected fun pill(label: String, icon: Int = 0): TextView = text(label, SMALL, bold = true).apply {
         isFocusable = true
         gravity = Gravity.CENTER_VERTICAL
@@ -305,19 +305,44 @@ abstract class Screen : Activity() {
         compoundDrawablePadding = dp(6)
         if (icon != 0) setCompoundDrawablesRelative(getDrawable(icon)?.mutate()?.apply { setBounds(0, 0, dp(16), dp(16)) }, null, null, null)
         fun style(focused: Boolean) {
-            background = GradientDrawable().apply {
-                setColor(TEXT)
-                cornerRadius = dp(BUTTON_H / 2).toFloat()
+            val r = dp(BUTTON_H / 2).toFloat()
+            background = object : Drawable() {
+                private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = TEXT
+                    if (focused) setShadowLayer(dp(12).toFloat(), 0f, 0f, TUNGSTEN_GLOW)
+                }
+                private val face = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = TEXT }
+                private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(1).toFloat()
+                    color = TUNGSTEN
+                }
+                override fun draw(canvas: Canvas) {
+                    val box = RectF(bounds)
+                    if (focused) canvas.drawRoundRect(box, r, r, glow)
+                    canvas.drawRoundRect(box, r, r, face)
+                    if (focused) canvas.drawRoundRect(box, r, r, rim)
+                }
+                override fun setAlpha(alpha: Int) {
+                    glow.alpha = alpha
+                    face.alpha = alpha
+                    rim.alpha = alpha
+                }
+                override fun setColorFilter(colorFilter: ColorFilter?) {
+                    glow.colorFilter = colorFilter
+                    face.colorFilter = colorFilter
+                    rim.colorFilter = colorFilter
+                }
+                @Deprecated("Drawable API") override fun getOpacity() = PixelFormat.TRANSLUCENT
             }
             setTextColor(BASE)
             compoundDrawablesRelative[0]?.setTint(BASE)
-            elevation = if (focused) dp(8).toFloat() else 0f
-            if (android.os.Build.VERSION.SDK_INT >= 28) outlineSpotShadowColor = TUNGSTEN_GLOW
+            elevation = 0f
         }
         style(false)
         setOnFocusChangeListener { v, has ->
             style(has)
-            v.grow(has)
+            v.grow(has, CHIP_GROW).start()
         }
     }
 

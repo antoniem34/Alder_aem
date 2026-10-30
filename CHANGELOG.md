@@ -45,6 +45,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
+- **Cleaner title page.** The light around **Play** and **Resume** sits in the center. Cast names stay inside the screen margins. Action buttons align in the center.
 - **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
 - **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.
 - **Cleaner player controls.** The audio and subtitle status now sits in the pause details instead of above the Play button.
