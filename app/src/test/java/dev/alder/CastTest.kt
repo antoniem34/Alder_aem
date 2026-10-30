@@ -55,4 +55,25 @@ class CastTest {
         assertEquals(emptyList<CastMember>(), Tmdb.cast("", "series"))
         assertEquals(emptySet<String>(), Tmdb.personCredits(null, "", false))
     }
+
+    @Test
+    fun castChipLabelOmitsDirPrefix() {
+        val dir = CastMember("Denis Villeneuve", character = "Director", role = "director")
+        val actor = CastMember("Timothée Chalamet", character = "Paul Atreides")
+        assertEquals("Denis Villeneuve", castChipLabel(dir))
+        assertEquals("Timothée Chalamet", castChipLabel(actor))
+    }
+
+    @Test
+    fun heroCastPreviewCapsDirectorsAtOneAndPrioritizesLeadActors() {
+        val dir1 = CastMember("Vince Gilligan", character = "Director", role = "director")
+        val dir2 = CastMember("Peter Gould", character = "Director", role = "director")
+        val dir3 = CastMember("Michelle MacLaren", character = "Director", role = "director")
+        val actor1 = CastMember("Bryan Cranston", character = "Walter White")
+        val actor2 = CastMember("Aaron Paul", character = "Jesse Pinkman")
+        val actor3 = CastMember("Anna Gunn", character = "Skyler White")
+
+        val preview = heroCastPreview(listOf(dir1, dir2, dir3, actor1, actor2, actor3), maxCount = 3)
+        assertEquals(listOf("Vince Gilligan", "Bryan Cranston", "Aaron Paul"), preview.map { it.name })
+    }
 }
