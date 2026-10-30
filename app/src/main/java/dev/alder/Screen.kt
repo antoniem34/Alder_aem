@@ -646,7 +646,7 @@ abstract class Screen : Activity() {
      */
     protected fun whatsNew(version: String = Updates.mine(this), quiet: Boolean = false) {
         val changes = runCatching { assets.open("CHANGELOG.md").bufferedReader().use { it.readText() } }.getOrNull()
-            ?.let { changesFor(it, version) }.orEmpty()
+            ?.let { text -> changesFor(text, version).ifEmpty { changesFor(text, "Unreleased") } }.orEmpty()
         if (changes.isEmpty()) {
             if (!quiet) choose("What's new", listOf("OK"), "There are no notes for version $version.") {}
             return
