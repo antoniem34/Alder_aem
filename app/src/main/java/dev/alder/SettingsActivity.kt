@@ -531,7 +531,7 @@ class SettingsActivity : Screen() {
                         apiSetupServer?.stop()
                         ApiSetupServer(applicationContext).also { apiSetupServer = it }.start()
                     }.onSuccess { url ->
-                        choose("Open this address on your phone", listOf("OK"), url) {}
+                        showApiQr(url)
                     }.onFailure {
                         choose("Couldn't start local setup", listOf("OK"), "Connect the TV and phone to the same private network.") {}
                     }
@@ -639,6 +639,34 @@ class SettingsActivity : Screen() {
             Settings.unhideRow(this, all[i])
             done()
         }
+    }
+
+    /** Show a scannable QR using the QR encoder already bundled with AEM Media. */
+    private fun showApiQr(url: String) {
+        val dialog = android.app.Dialog(this).apply { requestWindowFeature(android.view.Window.FEATURE_NO_TITLE) }
+        val content = column(Gravity.CENTER_HORIZONTAL).apply {
+            setPadding(dp(24), dp(20), dp(24), dp(20))
+            background = glassOver(this@SettingsActivity, 16)
+            addView(text("Configurar claves API", BODY, bold = true))
+            addView(text("Escanea el QR con tu teléfono conectado a la misma red Wi-Fi.", SMALL, color = TEXT_2),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(ImageView(this@SettingsActivity).apply {
+                setImageBitmap(qrBitmap(url, dp(256)))
+                contentDescription = "Código QR para configurar TMDB y DeepSeek"
+            }, LinearLayout.LayoutParams(dp(256), dp(256)).apply { topMargin = dp(18) })
+            addView(text(url, SMALL, color = TEXT_2), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+            addView(text("La página se cerrará al salir de Ajustes o después de 10 minutos.", SMALL, color = TEXT_2),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(pill("Cerrar").apply { setOnClickListener { dialog.dismiss() } },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16) })
+        }
+        dialog.setContentView(content)
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+            setLayout(dp(380), -2)
+            setDimAmount(0.6f)
+        }
+        dialog.show()
     }
 
     private fun actionRow(label: String, value: String, help: String, click: () -> Unit): TextView {
