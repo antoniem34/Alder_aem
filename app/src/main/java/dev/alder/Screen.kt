@@ -162,7 +162,7 @@ abstract class Screen : Activity() {
     /** Shared House Lights typography. */
     protected fun text(value: String, sp: Float, bold: Boolean = false, color: Int = TEXT, serif: Boolean = false) =
         TextView(this).apply {
-            text = UiLanguage.label(value, if (android.os.Build.VERSION.SDK_INT >= 24) resources.configuration.locales[0] else @Suppress("DEPRECATION") resources.configuration.locale)
+            text = UiLanguage.label(value, if (android.os.Build.VERSION.SDK_INT >= 24) resources.configuration.locales[0] else java.util.Locale.getDefault())
             textSize = sp
             setTextColor(color)
             typeface = if (serif) fonts.serif else if (bold) fonts.semiBold else fonts.medium
