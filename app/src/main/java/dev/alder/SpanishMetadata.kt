@@ -8,13 +8,11 @@ internal object SpanishMetadata {
     private const val BASE = "https://api.themoviedb.org/3"
     private const val LANGUAGE = "es-MX"
     private val cache = ConcurrentHashMap<String, Pair<String?, String?>>()
-    private val unavailable = ConcurrentHashMap.newKeySet<String>()
 
     /** A TMDB key may be supplied in Gradle BuildConfig later; use the existing TMDB key meanwhile. */
     fun localized(meta: Meta): Meta {
         if (!meta.id.startsWith("tt") || meta.type !in listOf("movie", "series")) return meta
         val key = meta.type + ":" + meta.id
-        if (key in unavailable) return meta
         val translated = cache[key] ?: runCatching { fetch(meta.id, meta.type) }.getOrNull()?.also { cache[key] = it }
             ?: return meta
         val (title, overview) = translated
