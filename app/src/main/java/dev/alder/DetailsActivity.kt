@@ -166,7 +166,7 @@ class DetailsActivity : Screen() {
             }
             richCast = m.castMembers
             showHero(m)
-            if (type == "series" && m.videos.isNotEmpty()) buildGuide(m.videos)
+            if (isEpisodicType(type) && m.videos.isNotEmpty()) buildGuide(m.videos)
             if (type == "movie" && !similarRequested) { similarRequested = true; loadSimilar() }
             loadRichCast()
             if (!trailerRequested && m.id.startsWith("tt")) {
@@ -235,7 +235,7 @@ class DetailsActivity : Screen() {
             stack.addView(error.marginTop(16))
             error.post { error.getChildAt(2).requestFocus() }
         } else {
-            val length = if (type == "series") m.videos.map { it.season }.filter { it > 0 }.distinct().size
+            val length = if (isEpisodicType(type)) m.videos.map { it.season }.filter { it > 0 }.distinct().size
                 .takeIf { it > 0 }?.let(::seasons) else m.runtime
             val facts = listOfNotNull(m.year, m.genres.firstOrNull(), length).joinToString(DOT)
             val factRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -276,7 +276,7 @@ class DetailsActivity : Screen() {
         hero.addView(stack, FrameLayout.LayoutParams(dp(HERO_W), -2, Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(PAD); bottomMargin = dp(92)
         })
-        val hasEpisodes = type == "series" && m?.videos?.isNotEmpty() == true
+        val hasEpisodes = isEpisodicType(type) && m?.videos?.isNotEmpty() == true
         if (hasEpisodes || ::similarOverlay.isInitialized) {
             hero.addView(caps(if (hasEpisodes) "▾  Episodes" else "▾  More like this", TEXT_2).onArt().apply {
                 isFocusable = true
@@ -314,7 +314,7 @@ class DetailsActivity : Screen() {
 
         val hasTrailer = m.trailerStreams.isNotEmpty() || m.trailerYtId != null || imdbTrailers.isNotEmpty()
 
-        if (type == "series" && unairedNext != null) {
+        if (isEpisodicType(type) && unairedNext != null) {
             val airDate = airDateLabel(unairedNext.released)?.removePrefix("Airs ")
                 ?: episodeDate(unairedNext.released)?.replace(Regex(" \\d{4}$"), "")
                 ?: "soon"
@@ -1546,7 +1546,7 @@ class DetailsActivity : Screen() {
             if (infoOpen) { root.removeView(infoOverlay); infoOpen = false }
             hero.visibility = View.VISIBLE
             showHero(meta)
-            meta?.videos?.takeIf { type == "series" && it.isNotEmpty() }?.let(::buildGuide)
+            meta?.videos?.takeIf { isEpisodicType(type) && it.isNotEmpty() }?.let(::buildGuide)
             if (wasGuide) showGuide()
         }
     }
@@ -1609,8 +1609,8 @@ class DetailsActivity : Screen() {
             }
             if (!infoOpen && !similarOpen && !filmographyOpen && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN &&
                 currentFocus?.let { isInside(it, hero) } == true &&
-                (if (type == "series") ::guide.isInitialized else ::similarOverlay.isInitialized)) {
-                if (type == "series") showGuide() else showSimilar()
+                (if (isEpisodicType(type)) ::guide.isInitialized else ::similarOverlay.isInitialized)) {
+                if (isEpisodicType(type)) showGuide() else showSimilar()
                 return true
             }
         }
