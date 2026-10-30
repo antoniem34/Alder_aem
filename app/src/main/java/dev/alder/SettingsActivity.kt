@@ -60,7 +60,7 @@ object Settings {
     fun featuredHome(c: Context) = prefs(c).getBoolean(profileKey(c, "featuredHome"), false)
     /** A removed profile's taste goes with it, so a new profile in its place starts with none. */
     fun forget(c: Context, profileId: String) = prefs(c).edit().apply {
-        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showLive", "featuredHome").forEach { remove("$it@$profileId") }
+        listOf("release", "dub", "audioLang", "subLang", "hidden", "blurThumbnails", "hiddenRows", "startTab", "showMovies", "showShows", "showLive", "featuredHome", "recentSubLangs", "recentAudioLangs").forEach { remove("$it@$profileId") }
         prefs(c).all.keys.filter { it.startsWith("title:") && it.endsWith("@$profileId") }.forEach(::remove)
     }.apply()
 
@@ -114,6 +114,30 @@ object Settings {
         .orEmpty().ifEmpty { Languages.code(Locale.getDefault().toLanguageTag()) ?: "en" }
     fun subtitleSize(c: Context) = prefs(c).getInt("subSize", 100) // percent of Media3's default size
     fun subtitleBackground(c: Context) = prefs(c).getBoolean("subBackground", true)
+    fun setSubtitleSize(c: Context, size: Int) = prefs(c).edit().putInt("subSize", size).apply()
+    fun setSubtitleBackground(c: Context, on: Boolean) = prefs(c).edit().putBoolean("subBackground", on).apply()
+
+    fun recentSubtitles(c: Context): List<String> = runCatching {
+        val raw = prefs(c).getString(profileKey(c, "recentSubLangs"), null) ?: return emptyList()
+        val arr = org.json.JSONArray(raw)
+        (0 until arr.length()).map { arr.getString(it) }
+    }.getOrDefault(emptyList())
+
+    fun addRecentSubtitle(c: Context, langCode: String) {
+        val updated = updateRecentLanguages(recentSubtitles(c), langCode, 3)
+        prefs(c).edit().putString(profileKey(c, "recentSubLangs"), org.json.JSONArray(updated).toString()).apply()
+    }
+
+    fun recentAudio(c: Context): List<String> = runCatching {
+        val raw = prefs(c).getString(profileKey(c, "recentAudioLangs"), null) ?: return emptyList()
+        val arr = org.json.JSONArray(raw)
+        (0 until arr.length()).map { arr.getString(it) }
+    }.getOrDefault(emptyList())
+
+    fun addRecentAudio(c: Context, langCode: String) {
+        val updated = updateRecentLanguages(recentAudio(c), langCode, 3)
+        prefs(c).edit().putString(profileKey(c, "recentAudioLangs"), org.json.JSONArray(updated).toString()).apply()
+    }
 }
 
 /**

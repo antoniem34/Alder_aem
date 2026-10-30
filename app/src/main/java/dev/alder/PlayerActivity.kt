@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.Display
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
@@ -76,6 +78,75 @@ internal fun formatTiming(delay: Long) = when {
     delay == 0L -> "On time"
     delay < 0L -> "%+.2f s  earlier".format(delay / 1000f)
     else -> "%+.2f s  later".format(delay / 1000f)
+}
+
+/** Holds track data for display and smart pinning in the Audio & Subtitles overlay. */
+internal data class TrackChoice(
+    val id: String,
+    val name: String,
+    val tag: String = "",
+    val langCode: String? = null,
+    val isSelected: Boolean = false,
+    val isOff: Boolean = false
+)
+
+/**
+ * Pinned vs more tracks for fast TV D-pad access:
+ * 1. Off (if present)
+ * 2. Active / selected track
+ * 3. Device / preferred language track (if found and not already pinned)
+ * 4. Recent language tracks (in order of recency, if found and not already pinned)
+ * 5. All remaining tracks stay in `more` in their original order.
+ */
+internal fun partitionPinnedTracks(
+    tracks: List<TrackChoice>,
+    preferredLang: String?,
+    recentLangs: List<String>
+): Pair<List<TrackChoice>, List<TrackChoice>> {
+    val pinned = mutableListOf<TrackChoice>()
+    val seen = mutableSetOf<String>()
+
+    fun pin(track: TrackChoice) {
+        if (seen.add(track.id)) {
+            pinned.add(track)
+        }
+    }
+
+    // 1. Off track first
+    tracks.firstOrNull { it.isOff }?.let { pin(it) }
+
+    // 2. Currently selected track (if not Off)
+    tracks.firstOrNull { it.isSelected && !it.isOff }?.let { pin(it) }
+
+    // 3. Preferred language track
+    if (!preferredLang.isNullOrBlank()) {
+        tracks.firstOrNull { !it.isOff && Languages.match(it.langCode, preferredLang) > 0 && it.id !in seen }?.let { pin(it) }
+    }
+
+    // 4. Recently used language tracks
+    for (recent in recentLangs) {
+        if (recent.isBlank()) continue
+        tracks.firstOrNull { !it.isOff && Languages.match(it.langCode, recent) > 0 && it.id !in seen }?.let { pin(it) }
+    }
+
+    // 5. Remaining tracks
+    val more = tracks.filter { it.id !in seen }
+    return pinned to more
+}
+
+/** Updates recent languages with [newLang] at the front, deduplicated and capped at [maxCount]. */
+internal fun updateRecentLanguages(recents: List<String>, newLang: String, maxCount: Int = 3): List<String> {
+    val code = Languages.code(newLang) ?: newLang.trim().lowercase()
+    if (code.isBlank() || code == "und") return recents
+    val list = recents.filterNot { Languages.same(it, code) || it.equals(code, ignoreCase = true) }.toMutableList()
+    list.add(0, code)
+    return list.take(maxCount)
+}
+
+/** Chunks a list of tracks into rows for a multi-column grid. */
+internal fun <T> chunkGrid(tracks: List<T>, columns: Int = 3): List<List<T>> {
+    require(columns > 0)
+    return tracks.chunked(columns)
 }
 
 internal fun playerPauseFacts(subtitle: String, endClock: String?, isTrailer: Boolean, isLive: Boolean): String =
@@ -1848,129 +1919,735 @@ class PlayerActivity : Screen() {
     private fun openOptions() {
         hideControls(force = true)
         controls.visibility = View.GONE
-        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        list.addView(text("Audio & subtitles", SERIF_TITLE, serif = true), wrap())
-        list.addView(text(listOfNotNull(pauseTitle.text.toString().takeIf { it.isNotBlank() },
-            subtitle.text.toString().takeIf { it.isNotBlank() }).joinToString(DOT),
-            SMALL, color = TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, wrap().apply { topMargin = dp(5) })
+        options.removeAllViews()
 
-        val audio = audioGroups.filter { it.isTrackSupported(0) }
-        if (audio.isNotEmpty()) section(list, "Audio", audio.map { trackName(it.getTrackFormat(0), true) }, audio.indexOfFirst { it.isSelected }) { i ->
-            audioPicked = true
-            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setOverrideForType(TrackSelectionOverride(audio[i].mediaTrackGroup, (0 until audio[i].length).toList())).build()
-            Languages.code(audio[i].getTrackFormat(0).language)?.let { wantAudio = it; Settings.pickedInPlayer(this, metaId, audio = it) }
+        val sheet = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(22))
+            clipToPadding = true
+            clipChildren = true
+            background = videoGlass(14)
         }
-        if (!passthrough) {
-            val clearDialogueOn = dialogueProcessor.enabled
-            section(list, "Clear dialogue", listOf("Off", "On"), if (clearDialogueOn) 1 else 0) { i ->
-                val on = i == 1
-                dialogueProcessor.enabled = on
-                Settings.setClearDialogue(this, on)
+        val sheetWidth = dp(460)
+        options.addView(sheet, FrameLayout.LayoutParams(sheetWidth, resources.displayMetrics.heightPixels - dp(54)).apply {
+            leftMargin = dp(27); topMargin = dp(27)
+        })
+
+        sheet.addView(text("Audio & subtitles", SERIF_TITLE, serif = true), wrap())
+        sheet.addView(text(listOfNotNull(pauseTitle.text.toString().takeIf { it.isNotBlank() },
+            subtitle.text.toString().takeIf { it.isNotBlank() }).joinToString(DOT),
+            SMALL, color = TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, wrap().apply { topMargin = dp(4) })
+
+        val tabsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            background = glass(18)
+        }
+        sheet.addView(tabsRow, LinearLayout.LayoutParams(-1, dp(36)).apply {
+            topMargin = dp(14); bottomMargin = dp(12)
+        })
+
+        val tabPills = mutableListOf<TextView>()
+        val tabNames = listOf("Subtitles", "Audio", "Sync & Style")
+        var currentTab = 0
+
+        val panelsContainer = FrameLayout(this).apply {
+            clipChildren = true
+            clipToPadding = true
+            setPadding(0, 0, 0, dp(48))
+        }
+        val contentScroll = object : ScrollView(this) {
+            override fun dispatchDraw(canvas: Canvas) {
+                val count = canvas.save()
+                canvas.clipRect(0, 0, width, height)
+                super.dispatchDraw(canvas)
+                canvas.restoreToCount(count)
+            }
+        }.apply {
+            isVerticalScrollBarEnabled = false
+            clipToPadding = true
+            clipChildren = true
+            isFillViewport = true
+            addView(panelsContainer, FrameLayout.LayoutParams(-1, -2))
+        }
+        sheet.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val subtitlesPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = true
+            clipToPadding = true
+        }
+        val audioPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = true
+            clipToPadding = true
+        }
+        val syncPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = true
+            clipToPadding = true
+        }
+
+        fun styleTabPill(index: Int) {
+            val pill = tabPills[index]
+            val isSelected = index == currentTab
+            val isFocused = pill.isFocused
+            pill.background = when {
+                isFocused -> GradientDrawable().apply {
+                    setColor(ROW_FOCUSED)
+                    cornerRadius = dp(13).toFloat()
+                    setStroke(dp(1), TUNGSTEN_RIM)
+                }
+                isSelected -> GradientDrawable().apply {
+                    setColor(0x3DF3D9B1.toInt())
+                    cornerRadius = dp(13).toFloat()
+                }
+                else -> GradientDrawable().apply {
+                    setColor(Color.TRANSPARENT)
+                    cornerRadius = dp(13).toFloat()
+                }
+            }
+            pill.setTextColor(when {
+                isFocused -> TEXT
+                isSelected -> TUNGSTEN
+                else -> TEXT_2
+            })
+        }
+
+        fun switchTab(newTab: Int) {
+            if (currentTab == newTab) return
+            currentTab = newTab
+            tabPills.indices.forEach { styleTabPill(it) }
+            subtitlesPanel.visibility = if (currentTab == 0) View.VISIBLE else View.GONE
+            audioPanel.visibility = if (currentTab == 1) View.VISIBLE else View.GONE
+            syncPanel.visibility = if (currentTab == 2) View.VISIBLE else View.GONE
+            contentScroll.scrollTo(0, 0)
+        }
+
+        tabNames.forEachIndexed { i, title ->
+            val pill = text(title, SMALL, bold = true).apply {
+                id = View.generateViewId()
+                isFocusable = true
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(4), dp(12), dp(4))
+                setOnFocusChangeListener { v, hasFocus ->
+                    if (hasFocus) {
+                        switchTab(i)
+                    }
+                    styleTabPill(i)
+                }
+                setOnClickListener {
+                    switchTab(i)
+                }
+            }
+            tabPills.add(pill)
+            tabsRow.addView(pill, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+
+        tabPills[0].nextFocusRightId = tabPills[1].id
+        tabPills[0].nextFocusLeftId = tabPills[0].id
+        tabPills[1].nextFocusLeftId = tabPills[0].id
+        tabPills[1].nextFocusRightId = tabPills[2].id
+        tabPills[2].nextFocusLeftId = tabPills[1].id
+        tabPills[2].nextFocusRightId = tabPills[2].id
+
+        tabPills.forEachIndexed { index, pill ->
+            pill.setOnKeyListener { _, keyCode, event ->
+                if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    val activePanel = when (index) {
+                        0 -> subtitlesPanel
+                        1 -> audioPanel
+                        else -> syncPanel
+                    }
+                    val target = findFirstFocusable(activePanel)
+                    if (target != null) {
+                        target.requestFocus()
+                        return@setOnKeyListener true
+                    }
+                }
+                false
             }
         }
+
+        var syncTimingHeader: TextView? = null
+        var quickTimingValue: TextView? = null
+        val timingResetPills = mutableListOf<TextView>()
+
+        fun updateAllTimingHeaders() {
+            val label = formatTiming(subDelay)
+            syncTimingHeader?.text = "SUBTITLE TIMING · ${label.uppercase()}"
+            quickTimingValue?.text = label
+            timingResetPills.forEach { it.setTextColor(if (subDelay != 0L) TUNGSTEN else TEXT_3) }
+        }
+
+        fun adjustTiming(delta: Long) {
+            setSubtitleDelay((subDelay + delta).coerceIn(-10_000L, 10_000L))
+            updateAllTimingHeaders()
+        }
+
+        fun resetTiming() {
+            setSubtitleDelay(0L)
+            updateAllTimingHeaders()
+        }
+
+        fun timingPill(label: String, isReset: Boolean = false, onClick: () -> Unit) = text(label, SMALL, bold = true,
+            color = if (isReset && subDelay == 0L) TEXT_3 else TEXT_2).apply {
+            if (isReset) timingResetPills.add(this)
+            gravity = Gravity.CENTER
+            maxLines = 1
+            background = glass(8)
+            rowFocus(8, rest = { glass(8) }) { has ->
+                setTextColor(when {
+                    has -> TEXT
+                    isReset && subDelay != 0L -> TUNGSTEN
+                    isReset -> TEXT_3
+                    else -> TEXT_2
+                })
+            }
+            setOnClickListener { onClick() }
+        }
+
+        fun trackRowRest(selected: Boolean) = if (selected) GradientDrawable().apply {
+            setColor(0x24F3D9B1.toInt())
+            cornerRadius = dp(8).toFloat()
+            setStroke(dp(1), 0x4DF3D9B1.toInt())
+        } else null
+
+        class TrackRowHolder(
+            val track: TrackChoice,
+            val row: LinearLayout,
+            val check: View,
+            val name: TextView,
+            val tagText: TextView,
+            val badge: TextView
+        )
+
+        fun createTrackRow(
+            track: TrackChoice,
+            isSelected: Boolean,
+            isPreferred: Boolean,
+            isRecent: Boolean,
+            onUpToTabs: (() -> Unit)? = null,
+            onClick: () -> Unit
+        ): Pair<LinearLayout, TrackRowHolder> {
+            val check = View(this).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(TUNGSTEN) }
+                visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
+            }
+            val name = text(track.name, BODY, color = if (isSelected) TEXT else TEXT_2).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            }
+            val tagText = text(track.tag, SMALL, color = TEXT_3).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                visibility = if (track.tag.isNotEmpty()) View.VISIBLE else View.GONE
+            }
+            val badgeText = when {
+                isSelected && !track.isOff -> "Active"
+                isPreferred -> "Preferred"
+                isRecent -> "Recent"
+                else -> ""
+            }
+            val badge = text(badgeText, 10f, bold = true, color = if (isSelected) TUNGSTEN else TEXT_2).apply {
+                setPadding(dp(5), dp(1), dp(5), dp(1))
+                background = rounded(if (isSelected) 0x3DF3D9B1.toInt() else 0x22FFFFFF.toInt(), 4)
+                visibility = if (badgeText.isNotEmpty()) View.VISIBLE else View.GONE
+            }
+
+            val row = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                isFocusable = true
+                setPadding(dp(10), 0, dp(10), 0)
+                background = trackRowRest(isSelected)
+
+                addView(check, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(9) })
+                addView(name, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(badge, wrap().apply { marginStart = dp(6) })
+                addView(tagText, wrap().apply { marginStart = dp(6) })
+
+                setOnFocusChangeListener { v, hasFocus ->
+                    v.background = if (hasFocus) GradientDrawable().apply {
+                        setColor(ROW_FOCUSED)
+                        cornerRadius = dp(8).toFloat()
+                        setStroke(dp(1), TUNGSTEN_RIM)
+                    } else trackRowRest(isSelected)
+                    name.setTextColor(if (hasFocus || isSelected) TEXT else TEXT_2)
+                }
+
+                setOnKeyListener { _, keyCode, event ->
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && onUpToTabs != null) {
+                            onUpToTabs()
+                            return@setOnKeyListener true
+                        }
+                        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                            return@setOnKeyListener true
+                        }
+                    }
+                    false
+                }
+
+                setOnClickListener { onClick() }
+            }
+
+            return row to TrackRowHolder(track, row, check, name, tagText, badge)
+        }
+
+        // Subtitles tab setup
         val texts = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT && it.isTrackSupported(0) }
         val subs = texts.filterNot(::isAddonSub)
-        val loaded = texts.firstOrNull(::isAddonSub) // the addon file attached now, if any
-        val chosen = when {
+        val loaded = texts.firstOrNull(::isAddonSub)
+        var chosenSubIndex = when {
             C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes -> 0
             loaded?.isSelected == true -> 1 + subs.size + addonSubs.indexOf(chosenSub)
             else -> subs.indexOfFirst { it.isSelected } + 1
         }
-        val subsFirst = section(list, "Subtitles", listOf("Off") + subs.map { trackName(it.getTrackFormat(0), false) + "  ·  in the file" } +
-            addonSubs.map { "${it.language}  ·  ${it.addon}" }, chosen) { i ->
+
+        val subChoices = mutableListOf<TrackChoice>()
+        subChoices.add(TrackChoice("sub:0", "Off", isSelected = chosenSubIndex == 0, isOff = true))
+        subs.forEachIndexed { i, group ->
+            val format = group.getTrackFormat(0)
+            subChoices.add(TrackChoice("sub:${1 + i}", trackName(format, false), "in the file",
+                Languages.code(format.language), isSelected = chosenSubIndex == 1 + i))
+        }
+        addonSubs.forEachIndexed { i, sub ->
+            subChoices.add(TrackChoice("sub:${1 + subs.size + i}", sub.language, sub.addon,
+                Languages.code(sub.lang), isSelected = chosenSubIndex == 1 + subs.size + i))
+        }
+
+        val (pinnedSubs, moreSubs) = partitionPinnedTracks(subChoices, Settings.subtitleLanguage(this), Settings.recentSubtitles(this))
+        val initialChosenSub = subChoices.getOrNull(chosenSubIndex)
+        var currentSelectedSubId = initialChosenSub?.id ?: "sub:0"
+
+        val subActiveHeader = caps(if (currentSelectedSubId == "sub:0") "SUBTITLES · OFF" else "SUBTITLES · ${initialChosenSub?.name?.uppercase() ?: "OFF"}", TUNGSTEN)
+        subtitlesPanel.addView(subActiveHeader, wrap().apply { topMargin = dp(4); bottomMargin = dp(6) })
+
+        val quickTimingCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = glass(8)
+            visibility = if (currentSelectedSubId == "sub:0") View.GONE else View.VISIBLE
+        }
+        quickTimingCard.addView(caps("QUICK TIMING", TEXT_3), wrap().apply { bottomMargin = dp(6) })
+        val quickTimingButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val minus = timingPill("− 0.25s") { adjustTiming(-250L) }
+            val reset = timingPill(formatTiming(subDelay), isReset = true) { resetTiming() }.also { quickTimingValue = it }
+            val plus = timingPill("+ 0.25s") { adjustTiming(+250L) }
+            addView(minus, LinearLayout.LayoutParams(0, dp(30), 1f).apply { marginEnd = dp(6) })
+            addView(reset, LinearLayout.LayoutParams(0, dp(30), 1.2f).apply { marginEnd = dp(6) })
+            addView(plus, LinearLayout.LayoutParams(0, dp(30), 1f))
+        }
+        quickTimingCard.addView(quickTimingButtons, LinearLayout.LayoutParams(-1, dp(30)))
+
+        val subHolders = mutableListOf<TrackRowHolder>()
+
+        fun updateSubSelection(selectedId: String) {
+            val selChoice = subChoices.firstOrNull { it.id == selectedId }
+            subActiveHeader.text = if (selChoice == null || selChoice.isOff) "SUBTITLES · OFF" else "SUBTITLES · ${selChoice.name.uppercase()}"
+            quickTimingCard.visibility = if (selChoice?.isOff != false) View.GONE else View.VISIBLE
+
+            subHolders.forEach { holder ->
+                val track = holder.track
+                val isSel = track.id == selectedId
+                holder.check.visibility = if (isSel) View.VISIBLE else View.INVISIBLE
+                holder.name.setTextColor(if (isSel || holder.row.isFocused) TEXT else TEXT_2)
+
+                val isPref = !track.isOff && Languages.match(track.langCode, Settings.subtitleLanguage(this@PlayerActivity)) > 0
+                val isRec = !track.isOff && Settings.recentSubtitles(this@PlayerActivity).any { Languages.match(track.langCode, it) > 0 }
+
+                val badgeLabel = when {
+                    isSel && !track.isOff -> "Active"
+                    isPref -> "Preferred"
+                    isRec -> "Recent"
+                    else -> ""
+                }
+                holder.badge.text = badgeLabel
+                holder.badge.setTextColor(if (isSel) TUNGSTEN else TEXT_2)
+                holder.badge.background = rounded(if (isSel) 0x3DF3D9B1.toInt() else 0x22FFFFFF.toInt(), 4)
+                holder.badge.visibility = if (badgeLabel.isNotEmpty()) View.VISIBLE else View.GONE
+
+                if (!holder.row.isFocused) {
+                    holder.row.background = trackRowRest(isSel)
+                }
+            }
+        }
+
+        fun selectSubtitleTrack(track: TrackChoice) {
+            val i = subChoices.indexOfFirst { it.id == track.id }
+            if (i < 0) return
             val p = player.trackSelectionParameters.buildUpon()
             val sub = addonSubs.getOrNull(i - 1 - subs.size)
-            remember(if (i == 0) "" else sub?.lang ?: subs[i - 1].getTrackFormat(0).language, addonFile = sub != null,
+            val lang = if (i == 0) "" else sub?.lang ?: subs[i - 1].getTrackFormat(0).language
+            remember(lang, addonFile = sub != null,
                 pick = when { i == 0 -> ""; sub != null -> "addon:" + sub.url; else -> "file:" + subs[i - 1].getTrackFormat(0).id.orEmpty() })
+            if (i != 0) {
+                track.langCode?.let { Settings.addRecentSubtitle(this@PlayerActivity, it) }
+            }
             player.trackSelectionParameters = when {
                 i == 0 -> p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
                 sub == null -> p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .setOverrideForType(TrackSelectionOverride(subs[i - 1].mediaTrackGroup, 0)).build()
                 sub == chosenSub && loaded != null -> p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .setOverrideForType(TrackSelectionOverride(loaded.mediaTrackGroup, 0)).build()
-                else -> { chosenSub = sub; subDelay = 0L; textRenderer?.offsetUs = 0L; selectAddonSub = true; load(position()); return@section }
+                else -> { chosenSub = sub; subDelay = 0L; textRenderer?.offsetUs = 0L; selectAddonSub = true; load(position()); return }
+            }
+            chosenSubIndex = i
+            currentSelectedSubId = track.id
+            updateSubSelection(track.id)
+        }
+
+        subtitlesPanel.addView(caps("PINNED", TEXT_3), wrap().apply {
+            topMargin = dp(6); bottomMargin = dp(4)
+        })
+
+        pinnedSubs.forEachIndexed { idx, track ->
+            val (row, holder) = createTrackRow(
+                track = track,
+                isSelected = track.id == currentSelectedSubId,
+                isPreferred = !track.isOff && Languages.match(track.langCode, Settings.subtitleLanguage(this)) > 0,
+                isRecent = !track.isOff && Settings.recentSubtitles(this).any { Languages.match(track.langCode, it) > 0 },
+                onUpToTabs = if (idx == 0) { { tabPills[0].requestFocus() } } else null,
+                onClick = { selectSubtitleTrack(track) }
+            )
+            subHolders.add(holder)
+            subtitlesPanel.addView(row, LinearLayout.LayoutParams(-1, dp(36)))
+        }
+
+        subtitlesPanel.addView(quickTimingCard, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8); bottomMargin = dp(4)
+        })
+
+        if (moreSubs.isNotEmpty()) {
+            subtitlesPanel.addView(divider().apply {
+                layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(10), 0, dp(8)) }
+            })
+            subtitlesPanel.addView(caps("ALL LANGUAGES (${moreSubs.size})", TEXT_3), wrap().apply {
+                bottomMargin = dp(4)
+            })
+            moreSubs.forEach { track ->
+                val (row, holder) = createTrackRow(
+                    track = track,
+                    isSelected = track.id == currentSelectedSubId,
+                    isPreferred = Languages.match(track.langCode, Settings.subtitleLanguage(this)) > 0,
+                    isRecent = Settings.recentSubtitles(this).any { Languages.match(track.langCode, it) > 0 },
+                    onClick = { selectSubtitleTrack(track) }
+                )
+                subHolders.add(holder)
+                subtitlesPanel.addView(row, LinearLayout.LayoutParams(-1, dp(36)))
             }
         }
-        val textTrackSelected = C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes && chosen != 0
-        if (textTrackSelected) {
-            fun headingFor(delay: Long) = "SUBTITLE TIMING · ${formatTiming(delay).uppercase()}"
-            val title = caps(headingFor(subDelay), TUNGSTEN)
-            list.addView(title, wrap().apply { topMargin = dp(18); bottomMargin = dp(6) })
 
-            var resetLabel: TextView? = null
-            fun updateTimingHeader() {
-                title.text = headingFor(subDelay)
-                resetLabel?.setTextColor(if (subDelay != 0L) TUNGSTEN else TEXT_3)
-            }
-            fun adjust(delta: Long) {
-                setSubtitleDelay((subDelay + delta).coerceIn(-10_000L, 10_000L))
-                updateTimingHeader()
-            }
+        // Audio tab setup
+        val audio = audioGroups.filter { it.isTrackSupported(0) }
+        var chosenAudioIndex = audio.indexOfFirst { it.isSelected }
 
-            fun timingPill(label: String, isReset: Boolean = false, onClick: () -> Unit) = text(label, SMALL, bold = true,
-                color = if (isReset && subDelay == 0L) TEXT_3 else TEXT_2).apply {
-                if (isReset) resetLabel = this
+        val audioChoices = audio.mapIndexed { i, group ->
+            val format = group.getTrackFormat(0)
+            TrackChoice(
+                id = "audio:$i",
+                name = trackName(format, true),
+                langCode = Languages.code(format.language),
+                isSelected = i == chosenAudioIndex
+            )
+        }
+        val (pinnedAudio, moreAudio) = partitionPinnedTracks(audioChoices, Settings.audioLanguage(this), Settings.recentAudio(this))
+        val initialChosenAudio = audioChoices.getOrNull(chosenAudioIndex)
+        var currentSelectedAudioId = initialChosenAudio?.id.orEmpty()
+
+        val audioActiveHeader = caps(if (initialChosenAudio != null) "AUDIO · ${initialChosenAudio.name.uppercase()}" else "AUDIO", TUNGSTEN)
+        audioPanel.addView(audioActiveHeader, wrap().apply { topMargin = dp(4); bottomMargin = dp(6) })
+
+        val audioHolders = mutableListOf<TrackRowHolder>()
+
+        fun updateAudioSelection(selectedId: String) {
+            val selChoice = audioChoices.firstOrNull { it.id == selectedId }
+            audioActiveHeader.text = if (selChoice != null) "AUDIO · ${selChoice.name.uppercase()}" else "AUDIO"
+
+            audioHolders.forEach { holder ->
+                val track = holder.track
+                val isSel = track.id == selectedId
+                holder.check.visibility = if (isSel) View.VISIBLE else View.INVISIBLE
+                holder.name.setTextColor(if (isSel || holder.row.isFocused) TEXT else TEXT_2)
+
+                val isPref = Languages.match(track.langCode, Settings.audioLanguage(this@PlayerActivity)) > 0
+                val isRec = Settings.recentAudio(this@PlayerActivity).any { Languages.match(track.langCode, it) > 0 }
+
+                val badgeLabel = when {
+                    isSel -> "Active"
+                    isPref -> "Preferred"
+                    isRec -> "Recent"
+                    else -> ""
+                }
+                holder.badge.text = badgeLabel
+                holder.badge.setTextColor(if (isSel) TUNGSTEN else TEXT_2)
+                holder.badge.background = rounded(if (isSel) 0x3DF3D9B1.toInt() else 0x22FFFFFF.toInt(), 4)
+                holder.badge.visibility = if (badgeLabel.isNotEmpty()) View.VISIBLE else View.GONE
+
+                if (!holder.row.isFocused) {
+                    holder.row.background = trackRowRest(isSel)
+                }
+            }
+        }
+
+        fun selectAudioTrack(track: TrackChoice) {
+            val i = audioChoices.indexOfFirst { it.id == track.id }
+            if (i >= 0) {
+                audioPicked = true
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .setOverrideForType(TrackSelectionOverride(audio[i].mediaTrackGroup, (0 until audio[i].length).toList())).build()
+                track.langCode?.let {
+                    wantAudio = it
+                    Settings.pickedInPlayer(this@PlayerActivity, metaId, audio = it)
+                    Settings.addRecentAudio(this@PlayerActivity, it)
+                }
+                chosenAudioIndex = i
+                currentSelectedAudioId = track.id
+                updateAudioSelection(track.id)
+            }
+        }
+
+        audioPanel.addView(caps("PINNED", TEXT_3), wrap().apply {
+            topMargin = dp(6); bottomMargin = dp(4)
+        })
+
+        pinnedAudio.forEachIndexed { idx, track ->
+            val (row, holder) = createTrackRow(
+                track = track,
+                isSelected = track.id == currentSelectedAudioId,
+                isPreferred = Languages.match(track.langCode, Settings.audioLanguage(this)) > 0,
+                isRecent = Settings.recentAudio(this).any { Languages.match(track.langCode, it) > 0 },
+                onUpToTabs = if (idx == 0) { { tabPills[1].requestFocus() } } else null,
+                onClick = { selectAudioTrack(track) }
+            )
+            audioHolders.add(holder)
+            audioPanel.addView(row, LinearLayout.LayoutParams(-1, dp(36)))
+        }
+
+        if (moreAudio.isNotEmpty()) {
+            audioPanel.addView(divider().apply {
+                layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(10), 0, dp(8)) }
+            })
+            audioPanel.addView(caps("ALL AUDIO TRACKS (${moreAudio.size})", TEXT_3), wrap().apply {
+                bottomMargin = dp(4)
+            })
+            moreAudio.forEach { track ->
+                val (row, holder) = createTrackRow(
+                    track = track,
+                    isSelected = track.id == currentSelectedAudioId,
+                    isPreferred = Languages.match(track.langCode, Settings.audioLanguage(this)) > 0,
+                    isRecent = Settings.recentAudio(this).any { Languages.match(track.langCode, it) > 0 },
+                    onClick = { selectAudioTrack(track) }
+                )
+                audioHolders.add(holder)
+                audioPanel.addView(row, LinearLayout.LayoutParams(-1, dp(36)))
+            }
+        }
+
+        if (!passthrough) {
+            audioPanel.addView(divider().apply {
+                layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(12), 0, dp(8)) }
+            })
+            audioPanel.addView(caps("AUDIO ENHANCEMENT", TEXT_3), wrap().apply { bottomMargin = dp(4) })
+            var clearOn = dialogueProcessor.enabled
+            val clearStatus = text(if (clearOn) "On" else "Off", 10f, bold = true, color = if (clearOn) TUNGSTEN else TEXT_3).apply {
+                setPadding(dp(7), dp(2), dp(7), dp(2))
+                background = rounded(if (clearOn) 0x3DF3D9B1.toInt() else 0x1AFFFFFF.toInt(), 4)
+            }
+            val clearRow = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                isFocusable = true
+                setPadding(dp(10), 0, dp(10), 0)
+                val label = text("Clear dialogue", BODY, color = TEXT_2).apply { maxLines = 1 }
+                val sub = text("Boost voices above music and effects", SMALL, color = TEXT_3).apply { maxLines = 1 }
+                val left = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label)
+                    addView(sub)
+                }
+                addView(left, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(clearStatus, wrap())
+                rowFocus(8)
+                setOnClickListener {
+                    clearOn = !dialogueProcessor.enabled
+                    dialogueProcessor.enabled = clearOn
+                    Settings.setClearDialogue(this@PlayerActivity, clearOn)
+                    clearStatus.text = if (clearOn) "On" else "Off"
+                    clearStatus.setTextColor(if (clearOn) TUNGSTEN else TEXT_3)
+                    clearStatus.background = rounded(if (clearOn) 0x3DF3D9B1.toInt() else 0x1AFFFFFF.toInt(), 4)
+                }
+            }
+            audioPanel.addView(clearRow, LinearLayout.LayoutParams(-1, dp(42)))
+        }
+
+        // Sync & Style tab setup
+        fun timingHeading(delay: Long) = "SUBTITLE TIMING · ${formatTiming(delay).uppercase()}"
+        val timingHeader = caps(timingHeading(subDelay), TUNGSTEN)
+        syncTimingHeader = timingHeader
+        syncPanel.addView(timingHeader, wrap().apply { topMargin = dp(4); bottomMargin = dp(8) })
+
+        syncPanel.addView(caps("EARLIER", TEXT_3), wrap().apply { bottomMargin = dp(4) })
+        val earlierRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val pills = listOf(
+                timingPill("− 0.5s") { adjustTiming(-500L) },
+                timingPill("− 0.25s") { adjustTiming(-250L) },
+                timingPill("− 0.1s") { adjustTiming(-100L) }
+            )
+            pills.forEachIndexed { idx, pill ->
+                pill.setOnKeyListener { _, keyCode, event ->
+                    if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                        tabPills[2].requestFocus()
+                        return@setOnKeyListener true
+                    }
+                    false
+                }
+                addView(pill, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+                    if (idx < pills.lastIndex) marginEnd = dp(6)
+                })
+            }
+        }
+        syncPanel.addView(earlierRow, LinearLayout.LayoutParams(-1, dp(32)).apply { bottomMargin = dp(8) })
+
+        syncPanel.addView(caps("LATER", TEXT_3), wrap().apply { bottomMargin = dp(4) })
+        val laterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val pills = listOf(
+                timingPill("+ 0.1s") { adjustTiming(+100L) },
+                timingPill("+ 0.25s") { adjustTiming(+250L) },
+                timingPill("+ 0.5s") { adjustTiming(+500L) }
+            )
+            pills.forEachIndexed { idx, pill ->
+                addView(pill, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+                    if (idx < pills.lastIndex) marginEnd = dp(6)
+                })
+            }
+        }
+        syncPanel.addView(laterRow, LinearLayout.LayoutParams(-1, dp(32)).apply { bottomMargin = dp(8) })
+
+        val resetPill = timingPill("Reset timing (0.0s)", isReset = true) { resetTiming() }
+        syncPanel.addView(resetPill, LinearLayout.LayoutParams(-1, dp(32)).apply { bottomMargin = dp(14) })
+
+        syncPanel.addView(divider().apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(4), 0, dp(10)) }
+        })
+        syncPanel.addView(caps("SUBTITLE APPEARANCE", TUNGSTEN), wrap().apply { bottomMargin = dp(8) })
+
+        syncPanel.addView(caps("SIZE", TEXT_3), wrap().apply { bottomMargin = dp(4) })
+        val sizes = listOf(80 to "Small", 100 to "Medium", 130 to "Large", 160 to "Extra large")
+        var currentSubSize = Settings.subtitleSize(this)
+        val sizePills = mutableListOf<TextView>()
+        val sizeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sizes.forEachIndexed { idx, (sizeValue, sizeLabel) ->
+            val isCur = currentSubSize == sizeValue
+            val p = text(sizeLabel, SMALL, bold = true, color = if (isCur) TUNGSTEN else TEXT_2).apply {
                 gravity = Gravity.CENTER
                 maxLines = 1
-                background = glass(8)
-                rowFocus(8, rest = { glass(8) }) { has ->
-                    setTextColor(when {
-                        has -> TEXT
-                        isReset && subDelay != 0L -> TUNGSTEN
-                        isReset -> TEXT_3
-                        else -> TEXT_2
-                    })
+                background = if (isCur) rounded(0x3DF3D9B1.toInt(), 8) else glass(8)
+                rowFocus(8, rest = { if (currentSubSize == sizeValue) rounded(0x3DF3D9B1.toInt(), 8) else glass(8) }) { has ->
+                    setTextColor(if (has || currentSubSize == sizeValue) TEXT else TEXT_2)
                 }
-                setOnClickListener { onClick() }
+                setOnClickListener {
+                    currentSubSize = sizeValue
+                    Settings.setSubtitleSize(this@PlayerActivity, sizeValue)
+                    view.subtitleView?.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * sizeValue / 100f)
+                    sizePills.forEachIndexed { i, pill ->
+                        val active = sizes[i].first == currentSubSize
+                        pill.background = if (active) rounded(0x3DF3D9B1.toInt(), 8) else glass(8)
+                        pill.setTextColor(if (active) TUNGSTEN else TEXT_2)
+                    }
+                }
             }
-
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(timingPill("− 0.25s") { adjust(-250L) }, LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(6) })
-                addView(timingPill("Reset", isReset = true) { setSubtitleDelay(0L); updateTimingHeader() }, LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(6) })
-                addView(timingPill("+ 0.25s") { adjust(+250L) }, LinearLayout.LayoutParams(0, dp(32), 1f))
-            }
-            list.addView(row, LinearLayout.LayoutParams(-1, dp(32)))
+            sizePills.add(p)
+            sizeRow.addView(p, LinearLayout.LayoutParams(0, dp(30), 1f).apply {
+                if (idx < sizes.lastIndex) marginEnd = dp(5)
+            })
         }
-        list.addView(View(this).apply { setBackgroundColor(GLASS_EDGE) }, LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(18), 0, dp(10)) })
-        list.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val head = text("Change stream  →", BODY, bold = true).apply { setPadding(dp(8), dp(5), dp(8), dp(5)) }
-            addView(head, wrap())
-            // "2160p · Torrentio" as the mock reads it: what you're watching first, where it comes from last.
-            val label = sources[at].label.split(DOT.trim()).map { it.trim() }.filter { it.isNotEmpty() }
-            addView(text((label.drop(1) + label.take(1)).joinToString(DOT), SMALL, color = TEXT_3).apply { setPadding(dp(8), 0, 0, 0) }, wrap())
-            setPadding(0, 0, 0, dp(6))
-            rowFocus(8)
-            setOnClickListener { changeStream() }
-        }, LinearLayout.LayoutParams(-1, -2))
-        // One quiet row at the bottom: OK moves to the next sleep choice.
-        list.addView(LinearLayout(this).apply {
+        syncPanel.addView(sizeRow, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(10) })
+
+        syncPanel.addView(caps("BACKGROUND BOX", TEXT_3), wrap().apply { bottomMargin = dp(4) })
+        var currentBg = Settings.subtitleBackground(this)
+        val bgOptions = listOf(true to "On", false to "Off")
+        val bgPills = mutableListOf<TextView>()
+        val bgRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(8), 0)
-            val value = text(sleepLabel(stopAfter, sleepAt, System.currentTimeMillis()), SMALL, color = TEXT_3)
-            addView(text("Sleep", BODY, color = TEXT_2), wrap())
+        }
+        bgOptions.forEachIndexed { idx, (bgValue, bgLabel) ->
+            val isCur = currentBg == bgValue
+            val p = text(bgLabel, SMALL, bold = true, color = if (isCur) TUNGSTEN else TEXT_2).apply {
+                gravity = Gravity.CENTER
+                maxLines = 1
+                background = if (isCur) rounded(0x3DF3D9B1.toInt(), 8) else glass(8)
+                rowFocus(8, rest = { if (currentBg == bgValue) rounded(0x3DF3D9B1.toInt(), 8) else glass(8) }) { has ->
+                    setTextColor(if (has || currentBg == bgValue) TEXT else TEXT_2)
+                }
+                setOnClickListener {
+                    currentBg = bgValue
+                    Settings.setSubtitleBackground(this@PlayerActivity, bgValue)
+                    view.subtitleView?.setStyle(CaptionStyleCompat(Color.WHITE,
+                        if (bgValue) 0xB3000000.toInt() else Color.TRANSPARENT, Color.TRANSPARENT,
+                        CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, Color.BLACK, null))
+                    bgPills.forEachIndexed { i, pill ->
+                        val active = bgOptions[i].first == currentBg
+                        pill.background = if (active) rounded(0x3DF3D9B1.toInt(), 8) else glass(8)
+                        pill.setTextColor(if (active) TUNGSTEN else TEXT_2)
+                    }
+                }
+            }
+            bgPills.add(p)
+            bgRow.addView(p, LinearLayout.LayoutParams(0, dp(30), 1f).apply {
+                if (idx < bgOptions.lastIndex) marginEnd = dp(6)
+            })
+        }
+        syncPanel.addView(bgRow, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(14) })
+
+        syncPanel.addView(divider().apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(4), 0, dp(10)) }
+        })
+        syncPanel.addView(caps("PLAYBACK & SLEEP", TUNGSTEN), wrap().apply { bottomMargin = dp(6) })
+
+        val sleepValue = text(sleepLabel(stopAfter, sleepAt, System.currentTimeMillis()), SMALL, color = TEXT_3)
+        val sleepRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), 0, dp(10), 0)
+            addView(text("Sleep timer", BODY, color = TEXT_2), wrap())
             addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(value, wrap())
+            addView(sleepValue, wrap())
             rowFocus(8)
             setOnClickListener {
                 cycleSleep()
-                value.text = sleepLabel(stopAfter, sleepAt, System.currentTimeMillis())
+                sleepValue.text = sleepLabel(stopAfter, sleepAt, System.currentTimeMillis())
             }
-        }, LinearLayout.LayoutParams(-1, dp(32)).apply { topMargin = dp(4) })
+        }
+        syncPanel.addView(sleepRow, LinearLayout.LayoutParams(-1, dp(36)))
 
-        options.removeAllViews()
-        options.addView(ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
-            addView(list)
-            setPadding(dp(22), dp(20), dp(22), dp(22))
-            clipToPadding = false
-            background = videoGlass(14)
-        }, FrameLayout.LayoutParams(dp(310), resources.displayMetrics.heightPixels - dp(54)).apply {
-            leftMargin = dp(27); topMargin = dp(27)
-        })
+        val changeStreamRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val head = text("Change stream  →", BODY, bold = true).apply { setPadding(dp(10), dp(5), dp(10), dp(3)) }
+            addView(head, wrap())
+            val label = sources[at].label.split(DOT.trim()).map { it.trim() }.filter { it.isNotEmpty() }
+            addView(text((label.drop(1) + label.take(1)).joinToString(DOT), SMALL, color = TEXT_3).apply {
+                setPadding(dp(10), 0, dp(10), 0)
+            }, wrap())
+            setPadding(0, 0, 0, dp(4))
+            rowFocus(8)
+            setOnClickListener { changeStream() }
+        }
+        syncPanel.addView(changeStreamRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        audioPanel.visibility = View.GONE
+        syncPanel.visibility = View.GONE
+        panelsContainer.addView(subtitlesPanel, FrameLayout.LayoutParams(-1, -2))
+        panelsContainer.addView(audioPanel, FrameLayout.LayoutParams(-1, -2))
+        panelsContainer.addView(syncPanel, FrameLayout.LayoutParams(-1, -2))
+
         optionsBar = SeekBar(this).apply { isFocusable = false }
         optionsElapsed = text("", SMALL, color = TEXT_2).onArt()
         optionsLeft = text("", SMALL, color = TEXT_2).onArt()
@@ -1985,54 +2662,19 @@ class PlayerActivity : Screen() {
         })
         options.visibility = View.VISIBLE
         updateProgress()
-        subsFirst.requestFocus()
+        tabPills[0].requestFocus()
     }
 
-    /** Rows stay on clear glass; a tungsten rim and tick carry focus and selection. */
-    private fun section(list: LinearLayout, heading: String, labels: List<String>, chosen: Int, pick: (Int) -> Unit): View {
-        // The heading names the choice in use ("SUBTITLES · SPANISH"), so it reads before any scrolling.
-        fun headingFor(index: Int) = (listOf(heading) + listOfNotNull(labels.getOrNull(index)?.substringBefore("  ·  "))).joinToString(" · ")
-        val title = caps(headingFor(chosen), TUNGSTEN)
-        list.addView(title, wrap().apply {
-            topMargin = dp(18); bottomMargin = dp(5)
-        })
-        val checks = mutableListOf<View>()
-        val names = mutableListOf<TextView>()
-        val rows = labels.mapIndexed { index, label ->
-            val name = text(label.substringBefore("  ·  "), BODY, color = TEXT_2).apply {
-                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+    private fun findFirstFocusable(view: View): View? {
+        if (view.visibility != View.VISIBLE) return null
+        if (view.isFocusable) return view
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val found = findFirstFocusable(view.getChildAt(i))
+                if (found != null) return found
             }
-            names += name
-            val tag = text(label.substringAfter("  ·  ", ""), SMALL, color = TEXT_3).apply {
-                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-            }
-            // The choice in use: the tungsten dot before its name, as on chips and filters, and its name at full strength.
-            val check = View(this).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(TUNGSTEN) }
-                visibility = if (index == chosen) View.VISIBLE else View.INVISIBLE
-            }
-            checks += check
-            LinearLayout(this).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(9), 0, dp(9), 0)
-                addView(check, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(8) })
-                addView(name)
-                if (tag.text.isNotEmpty()) addView(tag, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                    marginStart = dp(7)
-                })
-                else addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-                rowFocus(8) { has ->
-                    name.setTextColor(if (has || check.visibility == View.VISIBLE) TEXT else TEXT_2)
-                }
-                setOnClickListener {
-                    pick(index)
-                    checks.forEachIndexed { i, icon -> icon.visibility = if (i == index) View.VISIBLE else View.INVISIBLE }
-                    title.text = headingFor(index).uppercase()
-                    names.forEachIndexed { i, word -> word.setTextColor(if (i == index) TEXT else TEXT_2) }
-                }
-            }.also { list.addView(it, LinearLayout.LayoutParams(-1, dp(32))) }
         }
-        return rows[chosen.coerceIn(0, rows.lastIndex)]
+        return null
     }
 
     private fun closeOptions() {

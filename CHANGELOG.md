@@ -42,6 +42,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
+- **Audio and subtitle tabs.** Select **Subtitles**, **Audio**, or **Sync & Style**. Active, preferred, and recent tracks appear first. Adjust subtitle sync in the panel.
 - **Clearer title page.** Cast names stay clear in dark glass capsules.
 - **Clearer menus.** Add-on lists, Search, and choice menus use glass that is easy to read.
 - **Clearer player controls.** The control bar shows more video. Player tags and panels use dark glass.
@@ -60,6 +61,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
+- **Remote focus and scrolling in Audio & subtitles.** Selecting an audio or subtitle track keeps remote focus on the selected track and does not reset the scroll position. Scrolling between tracks operates smoothly and clips cleanly within the scroll viewport.
+- **Smoked glass overlay in Audio & subtitles.** The Audio & subtitles sheet uses the Alder smoked glass recipe for high contrast over video.
 - **Cleaner title page.** The light around **Play** and **Resume** sits in the center. Cast names stay inside the screen margins. Action buttons align in the center.
 - **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
 - **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.

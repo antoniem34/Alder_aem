@@ -347,6 +347,63 @@ class ScreenDesignTest {
         assertEquals("+2.50 s  later", formatTiming(2500L))
     }
 
+    @Test fun smartPinningOrdersOffActivePreferredAndRecents() {
+        val tracks = listOf(
+            TrackChoice("off", "Off", isOff = true),
+            TrackChoice("en", "English", langCode = "en", isSelected = true),
+            TrackChoice("es", "Spanish", langCode = "es"),
+            TrackChoice("fr", "French", langCode = "fr"),
+            TrackChoice("de", "German", langCode = "de"),
+            TrackChoice("it", "Italian", langCode = "it")
+        )
+        val (pinned, more) = partitionPinnedTracks(tracks, preferredLang = "es", recentLangs = listOf("fr", "de"))
+        assertEquals(listOf("off", "en", "es", "fr", "de"), pinned.map { it.id })
+        assertEquals(listOf("it"), more.map { it.id })
+    }
+
+    @Test fun smartPinningDoesNotDuplicateWhenActiveMatchesPreferredOrRecent() {
+        val tracks = listOf(
+            TrackChoice("off", "Off", isOff = true),
+            TrackChoice("en", "English", langCode = "en", isSelected = true),
+            TrackChoice("es", "Spanish", langCode = "es")
+        )
+        val (pinned, more) = partitionPinnedTracks(tracks, preferredLang = "en", recentLangs = listOf("en", "es"))
+        assertEquals(listOf("off", "en", "es"), pinned.map { it.id })
+        assertEquals(emptyList<String>(), more.map { it.id })
+    }
+
+    @Test fun smartPinningForAudioTracksWithoutOff() {
+        val tracks = listOf(
+            TrackChoice("a1", "English 5.1", langCode = "en", isSelected = true),
+            TrackChoice("a2", "Spanish 2.0", langCode = "es"),
+            TrackChoice("a3", "French 5.1", langCode = "fr")
+        )
+        val (pinned, more) = partitionPinnedTracks(tracks, preferredLang = "fr", recentLangs = emptyList())
+        assertEquals(listOf("a1", "a3"), pinned.map { it.id })
+        assertEquals(listOf("a2"), more.map { it.id })
+    }
+
+    @Test fun recentLanguagesUpdatesAndCapsToThree() {
+        assertEquals(listOf("en"), updateRecentLanguages(emptyList(), "en"))
+        assertEquals(listOf("es", "en"), updateRecentLanguages(listOf("en"), "es"))
+        assertEquals(listOf("fr", "es", "en"), updateRecentLanguages(listOf("es", "en"), "fr"))
+        assertEquals(listOf("de", "fr", "es"), updateRecentLanguages(listOf("fr", "es", "en"), "de"))
+        // Existing language moves to front without duplicating
+        assertEquals(listOf("es", "de", "fr"), updateRecentLanguages(listOf("de", "fr", "es"), "es"))
+        // Undefined language is ignored
+        assertEquals(listOf("es", "de", "fr"), updateRecentLanguages(listOf("es", "de", "fr"), "und"))
+        assertEquals(listOf("es", "de", "fr"), updateRecentLanguages(listOf("es", "de", "fr"), ""))
+    }
+
+    @Test fun chunkGridSplitsTracksIntoColumns() {
+        val items = listOf("1", "2", "3", "4", "5", "6", "7")
+        val grid = chunkGrid(items, 3)
+        assertEquals(3, grid.size)
+        assertEquals(listOf("1", "2", "3"), grid[0])
+        assertEquals(listOf("4", "5", "6"), grid[1])
+        assertEquals(listOf("7"), grid[2])
+    }
+
     @Test fun trailerStreamsAndYoutubeIdsParseFromMetadataAndImdb() {
         assertEquals(0, trailerNodePriority("Trailer", "Clip 1"))
         assertEquals(1, trailerNodePriority("Clip", "Official Trailer"))
