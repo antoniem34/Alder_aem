@@ -190,7 +190,7 @@ class DetailsActivity : Screen() {
             }
         }
         background({
-            Stremio.addons(key).meta(type, metaId, together = true)?.let(SpanishMetadata::localized)
+            Stremio.addons(key).meta(type, metaId, together = true)?.let { SpanishMetadata.localized(applicationContext, it) }
         }) { result ->
             val fresh = result.getOrNull()
             if (fresh != null) show(fresh)
