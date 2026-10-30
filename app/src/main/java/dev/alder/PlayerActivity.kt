@@ -1798,8 +1798,9 @@ class PlayerActivity : Screen() {
         val sheet = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(20), dp(22), dp(22))
-            clipToPadding = false
-            background = glass(14)
+            clipToPadding = true
+            clipChildren = true
+            background = LayerDrawable(arrayOf(rounded(BASE and 0xD9FFFFFF.toInt(), 14), glass(14)))
         }
         val sheetWidth = dp(460)
         options.addView(sheet, FrameLayout.LayoutParams(sheetWidth, resources.displayMetrics.heightPixels - dp(54)).apply {
@@ -1826,14 +1827,21 @@ class PlayerActivity : Screen() {
         var currentTab = 0
 
         val panelsContainer = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
+            clipChildren = true
+            clipToPadding = true
             setPadding(0, 0, 0, dp(48))
         }
-        val contentScroll = ScrollView(this).apply {
+        val contentScroll = object : ScrollView(this) {
+            override fun dispatchDraw(canvas: Canvas) {
+                val count = canvas.save()
+                canvas.clipRect(0, 0, width, height)
+                super.dispatchDraw(canvas)
+                canvas.restoreToCount(count)
+            }
+        }.apply {
             isVerticalScrollBarEnabled = false
-            clipToPadding = false
-            clipChildren = false
+            clipToPadding = true
+            clipChildren = true
             isFillViewport = true
             addView(panelsContainer, FrameLayout.LayoutParams(-1, -2))
         }
@@ -1841,18 +1849,18 @@ class PlayerActivity : Screen() {
 
         val subtitlesPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
+            clipChildren = true
+            clipToPadding = true
         }
         val audioPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
+            clipChildren = true
+            clipToPadding = true
         }
         val syncPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
+            clipChildren = true
+            clipToPadding = true
         }
 
         fun styleTabPill(index: Int) {
@@ -1902,7 +1910,6 @@ class PlayerActivity : Screen() {
                         switchTab(i)
                     }
                     styleTabPill(i)
-                    v.grow(hasFocus, CHIP_GROW).start()
                 }
                 setOnClickListener {
                     switchTab(i)
