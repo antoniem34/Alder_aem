@@ -141,7 +141,7 @@ internal fun logoTint(pixels: IntArray): Int? {
 //    where you are and Resume, moving on to the next every ADVANCE. OK resumes; any other key returns to where you were.
 //    The TV's own screensaver takes over later (10 min on the test TV), so nothing stays still for hours.
 class MainActivity : Screen() {
-    private enum class Page(val label: String) { HOME("Home"), SHOWS("Shows"), MOVIES("Movies"), LIVE("Live"), LIBRARY("My List") }
+    private enum class Page(val label: String) { HOME("Home"), ANIME("Anime"), SHOWS("Shows"), MOVIES("Movies"), LIVE("Live"), LIBRARY("My List") }
     private enum class Mode { CINEMA, BROWSE }
     private enum class ListFilter { ALL, MOVIES, SHOWS }
     private enum class ListSort { RECENT, NAME, UNWATCHED }
@@ -159,7 +159,7 @@ class MainActivity : Screen() {
     private var lastListChip: TextView? = null
     private val navItems = mutableMapOf<Page, TextView>()
     private var page = Page.HOME
-    private val Page.isCatalog get() = this == Page.SHOWS || this == Page.MOVIES
+    private val Page.isCatalog get() = this == Page.ANIME || this == Page.SHOWS || this == Page.MOVIES
     /** One row of cards under the focused title's art: every page but My List's grid. */
     private val Page.isBrowse get() = this == Page.HOME || isCatalog || this == Page.LIVE
     private var mode = Mode.BROWSE
@@ -429,6 +429,7 @@ class MainActivity : Screen() {
             ?: when (Settings.startTab(this)) {
                 "movies" -> if (Settings.showMovies(this)) Page.MOVIES else Page.HOME
                 "shows" -> if (Settings.showShows(this)) Page.SHOWS else Page.HOME
+                "anime" -> if (Settings.showAnime(this)) Page.ANIME else Page.HOME
                 "library" -> Page.LIBRARY
                 else -> Page.HOME
             }
@@ -486,11 +487,11 @@ class MainActivity : Screen() {
      */
     private fun warmPages() = background({
         Stremio.savedLibrary(profile.authKey).orEmpty()
-            .filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series") }
+            .filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series", "anime") }
             .sortedByDescending { it.optString("_ctime") }.take(LIST_COLUMNS * 3)
             .forEach { libraryItem(it).poster?.let { url -> Images.prefetch(url, (dp(LIST_W) * CARD_GROW).toInt()) } }
         val catalogs = Stremio.savedAddons(profile.authKey).orEmpty().flatMap { it.catalogs }
-        for (p in listOf(Page.SHOWS, Page.MOVIES)) {
+        for (p in listOf(Page.ANIME, Page.SHOWS, Page.MOVIES)) {
             val shelves = catalogs.mapNotNull { c -> shelf(c)?.takeIf { it.page == p }?.let { c to it } }.sortedBy { it.second.rank }
             sections(p, shelves).forEachIndexed { i, (title, sources, picked) ->
                 val key = catalogAnswerKey(p.label, title, picked, sources.map { (c, _) ->
@@ -509,6 +510,7 @@ class MainActivity : Screen() {
     private var lastFeaturedHome = false
     private var lastShowMovies = true
     private var lastShowShows = true
+    private var lastShowAnime = true
     private var lastShowLive = true
     private var lastHiddenRows: Set<String> = emptySet()
 
@@ -519,15 +521,17 @@ class MainActivity : Screen() {
         val featured = Settings.featuredHome(this)
         val showMovies = Settings.showMovies(this)
         val showShows = Settings.showShows(this)
+        val showAnime = Settings.showAnime(this)
         val showLive = Settings.showLive(this)
         val hiddenRows = Settings.hiddenRows(this)
         val hiddenRowsChanged = hiddenRows != lastHiddenRows
         lastHiddenRows = hiddenRows
         lastShowMovies = showMovies
         lastShowShows = showShows
+        lastShowAnime = showAnime
         lastShowLive = showLive
         applyNavVisibility()
-        if ((page == Page.MOVIES && !showMovies) || (page == Page.SHOWS && !showShows) || (page == Page.LIVE && !showLive)) {
+        if ((page == Page.MOVIES && !showMovies) || (page == Page.SHOWS && !showShows) || (page == Page.ANIME && !showAnime) || (page == Page.LIVE && !showLive)) {
             showPage(Page.HOME)
             return
         }
@@ -762,6 +766,7 @@ class MainActivity : Screen() {
                 if (p == Page.LIVE) visibility = View.GONE
                 if (p == Page.MOVIES && !Settings.showMovies(this@MainActivity)) visibility = View.GONE
                 if (p == Page.SHOWS && !Settings.showShows(this@MainActivity)) visibility = View.GONE
+                if (p == Page.ANIME && !Settings.showAnime(this@MainActivity)) visibility = View.GONE
             }.inNav()
         }
         nav.background = glassOver(nav, NAV_R + 4)
@@ -790,6 +795,7 @@ class MainActivity : Screen() {
     private fun applyNavVisibility() {
         navItems[Page.MOVIES]?.visibility = if (Settings.showMovies(this) || page == Page.MOVIES) View.VISIBLE else View.GONE
         navItems[Page.SHOWS]?.visibility = if (Settings.showShows(this) || page == Page.SHOWS) View.VISIBLE else View.GONE
+        navItems[Page.ANIME]?.visibility = if (Settings.showAnime(this) || page == Page.ANIME) View.VISIBLE else View.GONE
         val live = lastAddons.any { a -> a.catalogs.any { shelf(it)?.page == Page.LIVE } }
         navItems[Page.LIVE]?.visibility = if ((live && Settings.showLive(this)) || page == Page.LIVE) View.VISIBLE else View.GONE
     }
@@ -1309,7 +1315,7 @@ class MainActivity : Screen() {
             }.sortedBy { it.second.rank }
             val catalogs = shelves.map { it.first }
             if (catalogs.isEmpty()) {
-                val what = when (p) { Page.MOVIES -> "movie"; Page.LIVE -> "live"; else -> "show" }
+                val what = when (p) { Page.MOVIES -> "movie"; Page.ANIME -> "anime"; Page.LIVE -> "live"; else -> "show" }
                 // Home holds only Continue and Watchly's picks, so a new account sees nothing there without a word.
                 content.addView(text(if (p == Page.HOME) "Picks for you show here once Watchly is installed on this profile's Stremio account. Shows and Movies have more to browse."
                     else "None of your addons has $what catalogs. Add one (AIOMetadata, Cinemeta) in Stremio.", BODY, color = TEXT_3)
@@ -1563,12 +1569,13 @@ class MainActivity : Screen() {
      * Where a catalog's row goes and what it's called, like Netflix: Home is what you're watching and what it led to
      * ("Because you watched…"); everything else sits on Movies or Shows by type, without the addon's name or a type
      * suffix. Personal picks come first (rank 0–1), then what's popular (2), then themed lists (3). TV channels, sport
-     * and events go to Live, one row per catalog under its own name; other types (anime, video channels) are left out.
+     * and events go to Live, one row per catalog under its own name; anime catalogs have their own tab.
      */
     private fun shelf(c: Addon.Catalog): Shelf? {
         val typePage = when {
             c.type == "movie" -> Page.MOVIES
-            c.type == "series" || c.type == "anime" -> Page.SHOWS
+            c.type == "anime" -> Page.ANIME
+            c.type == "series" -> Page.SHOWS
             isLiveType(c.type) -> return Shelf(Page.LIVE, tidy(c.name), 3)
             else -> return null
         }
@@ -1619,7 +1626,7 @@ class MainActivity : Screen() {
     }
 
     private fun showLibrary(slot: FrameLayout) {
-        val all = library.filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series") }
+        val all = library.filter { !it.optBoolean("removed") && it.optString("type") in listOf("movie", "series", "anime") }
             .filter { listFilter == ListFilter.ALL || it.optString("type") == if (listFilter == ListFilter.MOVIES) "movie" else "series" }
         val ordered = when (listSort) {
             ListSort.RECENT -> all.sortedByDescending { it.optString("_ctime") }
