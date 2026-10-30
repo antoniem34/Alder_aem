@@ -15,7 +15,7 @@ import java.net.URL
  * on an older version, and Android's package installer puts it in place (same signing key, so data stays).
  */
 object Updates {
-    private const val LATEST = "https://api.github.com/repos/antoniem34/AEM Media_aem/releases/latest"
+    private const val LATEST = "https://api.github.com/repos/antoniem34/Alder_aem/releases/latest"
     private const val CHECK_INTERVAL = 4 * 3600_000L // 4 hours instead of once a day
 
     class Release(val version: String, val apk: String)
