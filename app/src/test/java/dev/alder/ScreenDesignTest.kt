@@ -348,4 +348,53 @@ class ScreenDesignTest {
             ordered.map { it.title }
         )
     }
+
+    @Test fun playerPauseFactsAndBrandBadges() {
+        assertEquals("2025  ·  Ends 7:18 PM", playerPauseFacts("2025", "7:18 PM", isTrailer = false, isLive = false))
+        assertEquals("S5 E2  ·  Ends 8:56 PM", playerPauseFacts("S5 E2", "8:56 PM", isTrailer = false, isLive = false))
+        assertEquals("Trailer", playerPauseFacts("Trailer", "7:18 PM", isTrailer = true, isLive = false))
+        assertEquals("2025", playerPauseFacts("2025", "7:18 PM", isTrailer = false, isLive = true))
+
+        val dvAtmosRd = Stream(
+            "[RD+] Torrentio (2160p)",
+            "Dune.Part.Two.2024.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265.mkv",
+            "https://example.invalid/dune.mkv",
+            emptyMap(),
+            18_000_000_000L,
+            "Dune.Part.Two.2024.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265.mkv",
+            null,
+        )
+        assertEquals(
+            listOf(
+                PlayerBadge(BadgeBrand.NONE, "4K", accent = true),
+                PlayerBadge(BadgeBrand.DOLBY, "VISION", accent = true),
+                PlayerBadge(BadgeBrand.DOLBY, "ATMOS", accent = true),
+                PlayerBadge(BadgeBrand.NONE, "ENGLISH 5.1"),
+                PlayerBadge(BadgeBrand.SUBTITLES, "ENGLISH"),
+                PlayerBadge(BadgeBrand.DEBRID, "RD", code = "RD ⚡", accent = true),
+            ),
+            playerBadges(dvAtmosRd, audioLanguage = "en", subtitleLanguage = "en"),
+        )
+
+        val dtsRemuxTb = Stream(
+            "[TB⚡] Comet 1080p",
+            "The.Raid.2011.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1.mkv",
+            "https://example.invalid/raid.mkv",
+            emptyMap(),
+            24_000_000_000L,
+            "The.Raid.2011.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1.mkv",
+            null,
+        )
+        assertEquals(
+            listOf(
+                PlayerBadge(BadgeBrand.NONE, "1080p"),
+                PlayerBadge(BadgeBrand.DTS, "HD"),
+                PlayerBadge(BadgeBrand.NONE, "INDONESIAN 5.1"),
+                PlayerBadge(BadgeBrand.SUBTITLES, "ENGLISH"),
+                PlayerBadge(BadgeBrand.NONE, "REMUX"),
+                PlayerBadge(BadgeBrand.DEBRID, "TB", code = "TB ⚡", accent = true),
+            ),
+            playerBadges(dtsRemuxTb, audioLanguage = "id", audioChannels = 6, subtitleLanguage = "eng"),
+        )
+    }
 }
