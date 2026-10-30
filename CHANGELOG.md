@@ -36,7 +36,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
-- **Fast audio and subtitle tabs.** Switch between **Subtitles**, **Audio**, and **Sync & Style** with Left and Right. Active, preferred, and recent tracks pin to the top. Other tracks show in a grid to reduce remote clicks. Adjust subtitle sync on the Subtitles tab or in Sync & Style.
+- **Fast audio and subtitle tabs.** Switch between **Subtitles**, **Audio**, and **Sync & Style** with Left and Right. Active, preferred, and recent tracks pin to the top. Full track names and badges show clearly. Adjust subtitle sync on the Subtitles tab or in Sync & Style.
 - **Format and debrid badges in the player.** Open the player controls to see badges for resolution, Dolby Vision, HDR, Dolby Atmos, DTS, audio language, subtitles, and your debrid service below the title.
 - **Faster access to Audio & subtitles.** Press Left once from Play / Pause in the player to open **Audio & subtitles**.
 - **Live subtitle sync.** Adjust subtitle timing with Left and Right while the video plays. This works for embedded subtitles and add-on subtitles.
@@ -48,6 +48,7 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
+- **Remote focus in Audio & subtitles.** Selecting an audio or subtitle track keeps remote focus on the selected track and does not reset the scroll position. Scrolling between tracks operates smoothly without focus jumps.
 - **Cleaner title page.** The light around **Play** and **Resume** sits in the center. Cast names stay inside the screen margins. Action buttons align in the center.
 - **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
 - **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.
