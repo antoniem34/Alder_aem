@@ -37,27 +37,33 @@ object Stremio {
 
     /** The addons installed on the account, in the account's order. Kept in memory until [refresh]. */
     fun addons(authKey: String, refresh: Boolean = false): List<Addon> {
-        if (!refresh) addonsCache[authKey]?.let { return it }
+        if (!refresh) addonsCache[authKey]?.let { return BundledAddons.withKitsu(it) }
         val body = addonsBody(authKey)
         val answer = Http.post(API + "addonCollectionGet", body)
         return result(answer).getJSONArray("addons").objects().map(::Addon)
             .also { addonsCache[authKey] = it; Http.keep(API + "addonCollectionGet", body, answer) }
+            .let(BundledAddons::withKitsu)
     }
 
     /** The addon list as it was last time, from disk (null if never fetched), so Home can start before the network answers. */
     fun savedAddons(authKey: String): List<Addon>? = Http.savedAnswer(API + "addonCollectionGet", addonsBody(authKey))
         ?.let { runCatching { result(it).getJSONArray("addons").objects().map(::Addon) }.getOrNull() }
         ?.also { addonsCache.putIfAbsent(authKey, it) } // until the fresh list arrives, details are asked of these
+        ?.let(BundledAddons::withKitsu)
 
     private fun addonsBody(authKey: String) =
         JSONObject().put("type", "AddonCollectionGet").put("authKey", authKey).put("update", true).toString()
 
     /** Replaces the account's addon list (and order) with [addons]. */
     fun setAddons(authKey: String, addons: List<Addon>) {
+        // Preserve any Kitsu installation already present in the Stremio account.
+        // The bundled copy is local only and must not be uploaded.
+        val originalKitsu = addonsCache[authKey].orEmpty().filter { it.id == BundledAddons.KITSU_ID }
+        val accountAddons = BundledAddons.accountOnly(addons) + originalKitsu
         val body = JSONObject().put("type", "AddonCollectionSet").put("authKey", authKey)
-            .put("addons", JSONArray(addons.map { it.descriptor }))
+            .put("addons", JSONArray(accountAddons.map { it.descriptor }))
         result(post("addonCollectionSet", body))
-        addonsCache[authKey] = addons
+        addonsCache[authKey] = accountAddons
     }
 
     /** Library items (watch history included): the given ids, or every item when [ids] is empty. */

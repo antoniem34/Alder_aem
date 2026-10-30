@@ -94,7 +94,7 @@ class AddonsActivity : Screen() {
         list.addView(text("My add-ons", SERIF_TITLE, serif = true).onArt(), LinearLayout.LayoutParams(-1, -2).apply {
             leftMargin = dp(8); topMargin = dp(8)
         })
-        val guidance = "The first add-on that has something answers first. Changes apply to Stremio on all your devices."
+        val guidance = "Anime Kitsu is built into AEM Media. Other add-on changes sync to Stremio on your devices."
         list.addView(text(guidance, SMALL, color = TEXT_2).onArt().apply {
             text = android.text.SpannableString(guidance).apply {
                 setSpan(android.text.style.ForegroundColorSpan(TUNGSTEN), guidance.indexOf("Changes apply"), guidance.length,
@@ -172,8 +172,8 @@ class AddonsActivity : Screen() {
     private fun edit(a: Addon) {
         val i = addons.indexOf(a)
         val actions = listOfNotNull(
-            if (i > 0) "Move up" to { save(addons.toMutableList().apply { add(i - 1, removeAt(i)) }, a.transportUrl) } else null,
-            if (i < addons.size - 1) "Move down" to { save(addons.toMutableList().apply { add(i + 1, removeAt(i)) }, a.transportUrl) } else null,
+            if (i > 0 && a.id != BundledAddons.KITSU_ID) "Move up" to { save(addons.toMutableList().apply { add(i - 1, removeAt(i)) }, a.transportUrl) } else null,
+            if (i < addons.size - 1 && a.id != BundledAddons.KITSU_ID) "Move down" to { save(addons.toMutableList().apply { add(i + 1, removeAt(i)) }, a.transportUrl) } else null,
             if (!a.locked) "Remove" to {
                 choose("Remove ${addonShortName(a.name)}?", listOf("Cancel", "Remove"),
                     "This changes Stremio on all your devices.") { n ->
