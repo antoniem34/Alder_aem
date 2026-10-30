@@ -10,7 +10,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.alder"
+        applicationId = "com.antoniem34.aemmedia"
         minSdk = 23
         targetSdk = 36
         versionCode = 6
