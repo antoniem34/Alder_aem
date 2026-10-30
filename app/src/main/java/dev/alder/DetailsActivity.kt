@@ -190,7 +190,7 @@ class DetailsActivity : Screen() {
             }
         }
         background({
-            Stremio.addons(key).meta(type, metaId, together = true)?.let(SpanishMetadata::localized)
+            Stremio.addons(key).meta(type, metaId, together = true)?.let { SpanishMetadata.localized(applicationContext, it) }
         }) { result ->
             val fresh = result.getOrNull()
             if (fresh != null) show(fresh)
@@ -1169,7 +1169,7 @@ class DetailsActivity : Screen() {
 
     private fun loadRichCast() {
         background({
-            Tmdb.cast(metaId, type)
+            Tmdb.cast(applicationContext, metaId, type)
         }) { result ->
             val enhanced = result.getOrNull().orEmpty()
             if (enhanced.isNotEmpty()) {
@@ -1289,7 +1289,7 @@ class DetailsActivity : Screen() {
         lastFocusedActor = originView
         background({
             val creditedTitles = runCatching {
-                Tmdb.personCredits(actor.tmdbId, actor.name, actor.isDirector)
+                Tmdb.personCredits(applicationContext, actor.tmdbId, actor.name, actor.isDirector)
             }.getOrDefault(emptySet())
 
             val allMetas = Stremio.addons(key).flatMap { addon ->

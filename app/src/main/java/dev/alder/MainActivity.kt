@@ -2157,7 +2157,7 @@ class MainActivity : Screen() {
         metaPool.execute {
             // Last time's details from disk when there are some; the network only for titles never seen here.
             val m = runCatching {
-                Stremio.addons(key).let { it.savedMeta(item.type, item.id) ?: it.meta(item.type, item.id) }?.let(SpanishMetadata::localized)
+                Stremio.addons(key).let { it.savedMeta(item.type, item.id) ?: it.meta(item.type, item.id) }?.let { SpanishMetadata.localized(applicationContext, it) }
             }.getOrNull()
             main.post {
                 if (isDestroyed) return@post

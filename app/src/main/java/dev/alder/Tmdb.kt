@@ -1,5 +1,6 @@
 package dev.alder
 
+import android.content.Context
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -7,18 +8,18 @@ import java.util.concurrent.ConcurrentHashMap
  * Enriches movie and series cast metadata with full cast lists, directors, character names, and headshot photos from TMDB.
  */
 object Tmdb {
-    private const val KEY = "844dba0bfd8f3a4f3799f6130ef9e335"
-    internal val apiKey get() = KEY
+    private fun key(context: Context): String? = ApiCredentials.get(context, "tmdb")
     private const val BASE = "https://api.themoviedb.org/3"
     private val memoryCache = ConcurrentHashMap<String, List<CastMember>>()
     private val creditsCache = ConcurrentHashMap<String, Set<String>>()
 
-    fun cast(imdbId: String, type: String): List<CastMember> {
+    fun cast(context: Context?, imdbId: String, type: String): List<CastMember> {
         if (!imdbId.startsWith("tt")) return emptyList()
+        val KEY = context?.let(::key) ?: return emptyList()
         memoryCache[imdbId]?.let { return it }
         return runCatching {
             val findUrl = "$BASE/find/$imdbId?api_key=$KEY&external_source=imdb_id"
-            val findJson = JSONObject(Http.get(findUrl, keep = true))
+            val findJson = JSONObject(Http.get(findUrl))
             val isMovie = type != "series"
             val primaryKey = if (isMovie) "movie_results" else "tv_results"
             val fallbackKey = if (isMovie) "tv_results" else "movie_results"
@@ -27,7 +28,7 @@ object Tmdb {
             val tmdbId = target.optInt("id").takeIf { it > 0 } ?: return emptyList()
             val mediaType = if (target.has("title")) "movie" else "tv"
             val creditsUrl = "$BASE/$mediaType/$tmdbId/credits?api_key=$KEY"
-            val creditsJson = JSONObject(Http.get(creditsUrl, keep = true))
+            val creditsJson = JSONObject(Http.get(creditsUrl))
 
             val directors = mutableListOf<CastMember>()
             val crewArray = creditsJson.optJSONArray("crew")
@@ -72,7 +73,9 @@ object Tmdb {
     /**
      * Resolves credited movie and TV titles for a person from TMDB to filter out search false-positives.
      */
-    fun personCredits(personId: Int?, personName: String, isDirector: Boolean): Set<String> {
+    fun personCredits(context: Context?, personId: Int?, personName: String, isDirector: Boolean): Set<String> {
+        if (personId == null && personName.isBlank()) return emptySet()
+        val KEY = context?.let(::key) ?: return emptySet()
         val cacheKey = "${personId ?: personName}_$isDirector".lowercase()
         creditsCache[cacheKey]?.let { return it }
 
@@ -80,14 +83,14 @@ object Tmdb {
             var targetId = personId
             if (targetId == null || targetId <= 0) {
                 val searchUrl = "$BASE/search/person?api_key=$KEY&query=${android.net.Uri.encode(personName)}"
-                val searchJson = JSONObject(Http.get(searchUrl, keep = true))
+                val searchJson = JSONObject(Http.get(searchUrl))
                 val first = searchJson.optJSONArray("results")?.optJSONObject(0)
                 targetId = first?.optInt("id")?.takeIf { it > 0 }
             }
             if (targetId == null || targetId <= 0) return emptySet()
 
             val combinedUrl = "$BASE/person/$targetId/combined_credits?api_key=$KEY"
-            val combinedJson = JSONObject(Http.get(combinedUrl, keep = true))
+            val combinedJson = JSONObject(Http.get(combinedUrl))
             val set = mutableSetOf<String>()
 
             if (isDirector) {

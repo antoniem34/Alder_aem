@@ -201,6 +201,8 @@ class SettingsActivity : Screen() {
     private class Choice(val key: String, val label: String, val hint: String, val values: List<Pair<Any, String>>, val perProfile: Boolean = false) {
         init { require(values.isNotEmpty() && values.all { it.first.javaClass == values[0].first.javaClass }) }
     }
+    private var apiSetupServer: ApiSetupServer? = null
+
     private enum class Group(val label: String, val icon: Int = 0, val glyph: String = "") {
         STREAMS("Streams", R.drawable.ic_play),
         PICTURE("Picture & Sound", R.drawable.ic_tv),
@@ -208,6 +210,7 @@ class SettingsActivity : Screen() {
         ADDONS("Add-ons", R.drawable.ic_layers),
         PROFILE("Profile", glyph = "♙"),
         LANGUAGE("Language", glyph = "◎"),
+        API_KEYS("API keys", glyph = "⌘"),
         STORAGE("Storage", glyph = "▤"),
         ABOUT("About", R.drawable.ic_info),
     }
@@ -264,6 +267,12 @@ class SettingsActivity : Screen() {
     private var firstDetail: View? = null
     private var addonValue: TextView? = null
     private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
+
+    override fun onStop() {
+        apiSetupServer?.stop()
+        apiSetupServer = null
+        super.onStop()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -421,6 +430,7 @@ class SettingsActivity : Screen() {
             Group.ADDONS -> "Manage the add-ons connected to this profile."
             Group.PROFILE -> "Profile choices stay with the person watching."
             Group.LANGUAGE -> "AEM Media follows the TV's language."
+            Group.API_KEYS -> "Set your personal API keys from a phone or computer on the same Wi-Fi."
             Group.STORAGE -> "Storage on this TV only."
             Group.ABOUT -> "About AEM Media."
         }
@@ -514,6 +524,22 @@ class SettingsActivity : Screen() {
                 choiceRow(Choice("blurThumbnails", "Blur episode thumbnails",
                     "Blur pictures of unwatched episodes in show guides to avoid spoilers.",
                     listOf(false to "Off", true to "On"), perProfile = true))
+            }
+            Group.API_KEYS -> {
+                actionRow("Open browser configuration", "Start", "A temporary LAN page with a private access code.") {
+                    runCatching {
+                        apiSetupServer?.stop()
+                        ApiSetupServer(applicationContext).also { apiSetupServer = it }.start()
+                    }.onSuccess { url ->
+                        choose("Open this address on your phone", listOf("OK"), url) {}
+                    }.onFailure {
+                        choose("Couldn't start local setup", listOf("OK"), "Connect the TV and phone to the same private network.") {}
+                    }
+                }
+                actionRow("TMDB", if (ApiCredentials.configured(this, "tmdb")) "Configured" else "Not configured",
+                    "Personal TMDB API key. Open browser configuration to change it.") {}
+                actionRow("DeepSeek", if (ApiCredentials.configured(this, "deepseek")) "Configured" else "Not configured",
+                    "Personal DeepSeek API key. Open browser configuration to change it.") {}
             }
             Group.LANGUAGE -> actionRow("App language", Locale.getDefault().displayLanguage,
                 "The app follows this TV's language setting.") {

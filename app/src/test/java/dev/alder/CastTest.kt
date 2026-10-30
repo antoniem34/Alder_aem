@@ -51,9 +51,9 @@ class CastTest {
 
     @Test
     fun tmdbInvalidId() {
-        assertEquals(emptyList<CastMember>(), Tmdb.cast("invalid_id", "movie"))
-        assertEquals(emptyList<CastMember>(), Tmdb.cast("", "series"))
-        assertEquals(emptySet<String>(), Tmdb.personCredits(null, "", false))
+        assertEquals(emptyList<CastMember>(), Tmdb.cast(null, "invalid_id", "movie"))
+        assertEquals(emptyList<CastMember>(), Tmdb.cast(null, "", "series"))
+        assertEquals(emptySet<String>(), Tmdb.personCredits(null, null, "", false))
     }
 
     @Test
