@@ -219,10 +219,9 @@ private val metaPool = java.util.concurrent.Executors.newCachedThreadPool()
 
 class Meta(private val json: JSONObject) {
     /** Display-only translation; original JSON remains the authority for IDs and episode ordering. */
-    fun withDisplayText(title: String?, overview: String?): Meta {
+    fun withSynopsis(overview: String): Meta {
         val copy = JSONObject(json.toString())
-        if (!title.isNullOrBlank()) copy.put("name", title)
-        if (!overview.isNullOrBlank()) copy.put("description", overview)
+        if (overview.isNotBlank()) copy.put("description", overview)
         return Meta(copy)
     }
     val id: String = json.getString("id")
