@@ -292,6 +292,9 @@ class CastMember(
     }
 }
 
+/** Stremio represents anime as a separate type, but it is episodic like series. */
+internal fun isEpisodicType(type: String) = type == "series" || type == "anime"
+
 class Video(val id: String, val title: String, val season: Int, val episode: Int, val thumbnail: String?,
             val overview: String?, val released: String?)
 
