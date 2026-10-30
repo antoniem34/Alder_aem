@@ -10,16 +10,23 @@ Write every entry in ASD-STE100 Simplified Technical English (STE):
 - Write instructions as commands: "Select **Subtitles**", not "**Subtitles** can be selected".
 - Use one word for one thing. Use the names that Alder shows on the screen.
 - Put each entry under one heading: `### New`, `### Easier to use` or `### Fixes`, in that order. In each group, put the most important entries first.
-- Start an important entry with a short **bold** name. After an update, Alder shows the first 5 entries. **See all changes** shows all of them under their headings.
+- Start an important entry with a short **bold** name. **See all changes** shows all entries under their headings.
+- Put `<!-- Spotlight -->` before a change to show it in the short What's new list. Put the most important spotlight changes first in each group.
 
 Put changes that are not released under `## Unreleased`. Before each release, read all of `## Unreleased` again and rewrite each entry that does not obey these rules. Then rename that heading to the version number.
 
 ## Unreleased
 
 ### New
+<!-- Spotlight -->
 - **Trailers on the title page.** Select **▷ Trailer** on a movie or show to play its trailer. Alder does not add trailers to your watch history.
-- **Chapter markers and chapter snap.** See chapter marks and intro marks on the progress bar. Press Up on the bar to jump between chapters.
+<!-- Spotlight -->
+- **Live TV and sport.** If your add-ons have TV channels, sport or events, select **Live** at the top. Select a channel to play it. To choose a source, hold OK.
+<!-- Spotlight -->
 - **Directors and cast.** See directors and lead actors on the title screen. Select a person to see their other works. A label shows the title and year of the focused poster. Select **ⓘ** to see the full story and all cast members with portraits.
+<!-- Spotlight -->
+- **Chapter markers and chapter snap.** See chapter marks and intro marks on the progress bar. Press Up on the bar to jump between chapters.
+<!-- Spotlight -->
 - **Clear dialogue.** Turn on **Settings → Clear dialogue** to boost voices above music and loud effects on TV speakers. You can also turn it on while you watch.
 - **Foreign audio subtitles.** Alder can start subtitles automatically only when the audio is in a different language. Select **Settings → Subtitles → Foreign audio only**.
 - **Still watching?** If you do not press a remote button for 3 episodes, Alder stops before the next episode. Select **Play** or **Exit to Home**.
@@ -31,20 +38,26 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Show or hide tabs.** Turn tabs on or off in **Settings → Profile**.
 - **Featured rows on Home.** Show top recommendations and popular titles below Continue Watching. Turn on **Settings → Profile → Featured on Home**.
 - **Hide rows.** Hold OK on a title in a row, then select **Hide row**. To put it back, select **Settings → Profile → Hidden rows**.
-- **Live TV and sport.** If your add-ons have TV channels, sport or events, select **Live** at the top. Select a channel to play it. To choose a source, hold OK.
 - **30 GB file limit.** Select **30 GB** in **Settings → Largest file**.
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
-- **Fast audio and subtitle tabs.** Switch between **Subtitles**, **Audio**, and **Sync & Style** with Left and Right. Active, preferred, and recent tracks pin to the top. Full track names and badges show clearly. Adjust subtitle sync on the Subtitles tab or in Sync & Style.
+- **Audio and subtitle tabs.** Select **Subtitles**, **Audio**, or **Sync & Style**. Active, preferred, and recent tracks appear first. Adjust subtitle sync in the panel.
+- **Clearer title page.** Cast names stay clear in dark glass capsules.
+- **Clearer menus.** Add-on lists, Search, and choice menus use glass that is easy to read.
+- **Clearer player controls.** The control bar shows more video. Player tags and panels use dark glass.
+- **What's new showcase.** The update screen shows important changes first. Select **See all changes** to read the full list.
+<!-- Spotlight -->
+- **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
+<!-- Spotlight -->
+- **Cinematic video start.** When you select Play, Alder shows the title art and bottom controls immediately. The progress bar pulses with warm light while Alder connects to the source, and the video fades in smoothly.
 - **Format and debrid badges in the player.** Open the player controls to see badges for resolution, Dolby Vision, HDR, Dolby Atmos, DTS, audio language, subtitles, and your debrid service below the title.
 - **Faster access to Audio & subtitles.** Press Left once from Play / Pause in the player to open **Audio & subtitles**.
 - **Live subtitle sync.** Adjust subtitle timing with Left and Right while the video plays. This works for embedded subtitles and add-on subtitles.
-- **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
 - **Close player controls.** Press Back to close the controls while the video plays. Press Back again to leave the player.
 - **Exact subtitle remembered.** When you play a video again, Alder uses the exact subtitle track that you selected before.
 - **Update notification dot.** A dot on your profile avatar shows when a new version of Alder is ready.
-- **Install an update from the profile menu.** Select your profile avatar, then select **Install update**.
+- **Install an update from the profile menu.** Select your profile avatar, then select **Install update**. Alder installs version 1.3 over version 1.2.
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes

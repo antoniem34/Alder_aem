@@ -93,7 +93,7 @@ class SearchActivity : Screen() {
         root.addView(art, FrameLayout.LayoutParams(-1, -1))
         root.addView(View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(0xF20E0C0A.toInt(), 0xD90E0C0A.toInt(), 0xA00E0C0A.toInt(), 0x1A0E0C0A))
+                intArrayOf(0xA60E0C0A.toInt(), 0x8C0E0C0A.toInt(), 0x660E0C0A, 0x1A0E0C0A))
         }, FrameLayout.LayoutParams(-1, -1))
         root.addView(View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
@@ -150,10 +150,15 @@ class SearchActivity : Screen() {
         }
         field.addView(clear, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(4) })
         clearSearch = clear
-        val fieldRest = glassOver(field, 17, shade = LEFT_SHADE)
+        val fieldRest = glassOver(field, 17, shade = FROST_DENSE)
         field.background = fieldRest
         input.setOnFocusChangeListener { _, has ->
-            field.background = if (has) glass(17, true) else fieldRest
+            field.background = if (has) android.graphics.drawable.LayerDrawable(arrayOf(fieldRest,
+                GradientDrawable().apply {
+                    setColor(Color.TRANSPARENT)
+                    cornerRadius = dp(17).toFloat()
+                    setStroke(dp(1), TUNGSTEN_RIM)
+                })) else fieldRest
             placeCursor()
             if (!has) {
                 (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(input.windowToken, 0)
@@ -163,7 +168,7 @@ class SearchActivity : Screen() {
 
         keyboard = column(Gravity.START).apply {
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = glassOver(this, 14, shade = LEFT_SHADE)
+            background = glassOver(this, 14, shade = FROST_DENSE)
         }
         buildKeyboard()
         root.addView(keyboard, FrameLayout.LayoutParams(dp(228), dp(220)).apply { leftMargin = dp(48); topMargin = dp(134) })
@@ -289,7 +294,7 @@ class SearchActivity : Screen() {
                 }
             }, LinearLayout.LayoutParams(-2, dp(30)).apply { marginStart = dp(4) })
         }
-        nav.background = glassOver(nav, 20, shade = 0.4f)
+        nav.background = glassOver(nav, 20, shade = FROST_READING)
         bar.addView(nav, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         bar.addView(TextClock(this).apply {
             format12Hour = "h:mm a"
@@ -733,7 +738,6 @@ class SearchActivity : Screen() {
 
     private companion object {
         const val RECENT = 6
-        const val LEFT_SHADE = 0.85f // the left shade's strength behind the field and keyboard
         const val PER_TYPE = 12
         const val TYPING_PAUSE = 500L
         const val SEARCH_WAIT = 6000L
