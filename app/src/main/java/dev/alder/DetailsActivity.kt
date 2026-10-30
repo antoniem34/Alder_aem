@@ -1204,7 +1204,8 @@ class DetailsActivity : Screen() {
                 isFocusable = true
                 minimumHeight = dp(28)
                 setPadding(dp(4), dp(4), dp(11), dp(4))
-                background = null
+                val rest = glassOver(this, 14, shade = FROST_DENSE)
+                background = rest
 
                 val avatarSize = dp(20)
                 val avatarFrame = FrameLayout(context).apply {
@@ -1237,7 +1238,7 @@ class DetailsActivity : Screen() {
                 }
                 addView(avatarFrame, LinearLayout.LayoutParams(avatarSize, avatarSize).apply { marginEnd = dp(7) })
 
-                val nameView = text(castChipLabel(actor), SMALL, color = TEXT_2).apply {
+                val nameView = text(castChipLabel(actor), SMALL, color = TEXT).apply {
                     includeFontPadding = false
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
@@ -1246,9 +1247,9 @@ class DetailsActivity : Screen() {
                 addView(nameView, wrap())
 
                 setOnFocusChangeListener { v, has ->
-                    v.background = if (has) glass(14, true) else null
+                    v.background = if (has) glass(14, true) else rest
                     v.grow(has, CHIP_GROW).start()
-                    nameView.setTextColor(if (has) TEXT else TEXT_2)
+                    nameView.setTextColor(TEXT)
                 }
                 setOnClickListener { showFilmography(actor, this) }
             }
@@ -1261,16 +1262,16 @@ class DetailsActivity : Screen() {
         val totalCastCount = (richCast.ifEmpty { allMembers }).size
         val remainingCount = totalCastCount - members.size
         if (remainingCount > 0) {
-            val moreChip = text("+$remainingCount more", SMALL, color = TEXT_2).apply {
+            val moreChip = text("+$remainingCount more", SMALL, color = TEXT).apply {
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 minHeight = dp(28)
                 setPadding(dp(12), dp(4), dp(12), dp(4))
-                background = null
+                val rest = glassOver(this, 14, shade = FROST_DENSE)
+                background = rest
                 isFocusable = true
                 setOnFocusChangeListener { v, has ->
-                    v.background = if (has) glass(14, true) else null
-                    setTextColor(if (has) TEXT else TEXT_2)
+                    v.background = if (has) glass(14, true) else rest
                     v.grow(has, CHIP_GROW).start()
                 }
                 setOnClickListener { showInfo(focusCast = true) }

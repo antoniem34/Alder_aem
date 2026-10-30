@@ -36,9 +36,9 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
-- **Clearer title page.** Cast names sit on the art. Glass appears when you select a person.
+- **Clearer title page.** Cast names stay clear in dark glass capsules.
 - **Clearer menus.** Add-on lists, Search, and choice menus use glass that is easy to read.
-- **Clearer player controls.** The control bar shows more video. Player panels use one dark glass style.
+- **Clearer player controls.** The control bar shows more video. Player tags and panels use dark glass.
 - **Cinematic video start.** When you select Play, Alder shows the title art and bottom controls immediately. The progress bar pulses with warm light while Alder connects to the source, and the video fades in smoothly.
 - **Format and debrid badges in the player.** Open the player controls to see badges for resolution, Dolby Vision, HDR, Dolby Atmos, DTS, audio language, subtitles, and your debrid service below the title.
 - **Faster access to Audio & subtitles.** Press Left once from Play / Pause in the player to open **Audio & subtitles**.

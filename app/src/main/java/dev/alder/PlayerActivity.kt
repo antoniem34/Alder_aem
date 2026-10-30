@@ -1535,9 +1535,9 @@ class PlayerActivity : Screen() {
 
     /** Monochrome House Lights brand badge: custom vector marks for Dolby / DTS / Subtitles / Debrid, or crisp typographic lockups. */
     private fun badgeView(b: PlayerBadge): View {
-        val rim = if (b.accent) 0x80F3D9B1.toInt() else GLASS_EDGE
+        val rim = if (b.accent) 0x80F3D9B1.toInt() else 0x66FFF0DC
         val frame = GradientDrawable().apply {
-            setColor(0x3328221C)
+            setColor(VIDEO_CONTROL_BASE)
             cornerRadius = dp(4).toFloat()
             setStroke(dp(1), rim)
         }
