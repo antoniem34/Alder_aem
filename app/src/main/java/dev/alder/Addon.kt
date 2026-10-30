@@ -101,7 +101,7 @@ class Addon(val descriptor: JSONObject) {
         require(query.isNotBlank())
         val catalogs = manifest.optJSONArray("catalogs").objects()
             .filter { c ->
-                c.optString("type") in listOf("movie", "series") &&
+                c.optString("type") in listOf("movie", "series", "anime") &&
                     "search" in (c.optJSONArray("extraRequired").strings() + c.optJSONArray("extraSupported").strings() +
                         c.optJSONArray("extra").objects().map { it.optString("name") }) &&
                     c.optJSONArray("extraRequired").strings().all { it == "search" } &&
