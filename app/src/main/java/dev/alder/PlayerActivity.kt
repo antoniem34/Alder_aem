@@ -900,7 +900,7 @@ class PlayerActivity : Screen() {
         stallPanel.removeAllViews()
         val card = column(Gravity.START).apply {
             setPadding(dp(16), dp(15), dp(16), dp(14))
-            background = glass(14)
+            background = videoGlass(14)
             addView(caps("Keeps buffering", TUNGSTEN))
             addView(text("Switch to ${lower}p?", SERIF_TITLE, serif = true),
                 wrap().apply { topMargin = dp(4) })
@@ -936,7 +936,7 @@ class PlayerActivity : Screen() {
             pill("Other sources").apply { setOnClickListener { changeStream() } }.marginTop(12)
         ).apply {
             setPadding(dp(18), dp(18), dp(18), dp(18))
-            background = glass(14)
+            background = videoGlass(14)
         }
         stallPanel.addView(card, FrameLayout.LayoutParams(dp(310), -2, Gravity.BOTTOM or Gravity.END).apply {
             rightMargin = dp(PAD); bottomMargin = dp(48)
@@ -972,7 +972,7 @@ class PlayerActivity : Screen() {
         val content = column(Gravity.START).apply {
             setPadding(dp(18), dp(14), dp(18), dp(14))
             // Video can't be frosted: a dark base under the glass keeps it readable over white end cards.
-            background = android.graphics.drawable.LayerDrawable(arrayOf(rounded(BASE and 0xD9FFFFFF.toInt(), 14), glass(14)))
+            background = videoGlass(14)
             addView(caps("Up next", TUNGSTEN).onArt())
             addView(text(next.title.ifBlank { "Episode ${next.episode}" }, SERIF_HERO, serif = true).onArt(),
                 wrap().apply { topMargin = dp(6) })
@@ -1040,7 +1040,7 @@ class PlayerActivity : Screen() {
         val why = if (next != null) "$QUIET_EPISODES episodes played with no remote press." else "The sleep timer paused playback."
         val content = column(Gravity.START).apply {
             setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = android.graphics.drawable.LayerDrawable(arrayOf(rounded(BASE and 0xD9FFFFFF.toInt(), 14), glass(14)))
+            background = videoGlass(14)
             addView(caps("Still watching?", TUNGSTEN).onArt())
             addView(text(title, SERIF_HERO, serif = true).onArt().apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
@@ -1462,7 +1462,7 @@ class PlayerActivity : Screen() {
             }, FrameLayout.LayoutParams(-1, dp(120), Gravity.TOP))
             addView(View(context).apply {
                 background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                    intArrayOf(0xE60E0C0A.toInt(), 0xA60E0C0A.toInt(), 0x000E0C0A))
+                    intArrayOf(0xBF0E0C0A.toInt(), 0x590E0C0A, 0x000E0C0A))
             }, FrameLayout.LayoutParams(-1, dp(220), Gravity.BOTTOM))
             addView(playerLogo, FrameLayout.LayoutParams(dp(150), dp(50)).apply {
                 leftMargin = dp(PAD); topMargin = dp(26)
@@ -1535,9 +1535,9 @@ class PlayerActivity : Screen() {
 
     /** Monochrome House Lights brand badge: custom vector marks for Dolby / DTS / Subtitles / Debrid, or crisp typographic lockups. */
     private fun badgeView(b: PlayerBadge): View {
-        val rim = if (b.accent) 0x80F3D9B1.toInt() else GLASS_EDGE
+        val rim = if (b.accent) 0x80F3D9B1.toInt() else 0x66FFF0DC
         val frame = GradientDrawable().apply {
-            setColor(0x3328221C)
+            setColor(VIDEO_CONTROL_BASE)
             cornerRadius = dp(4).toFloat()
             setStroke(dp(1), rim)
         }
@@ -1700,8 +1700,14 @@ class PlayerActivity : Screen() {
                     view.grow(focused).start()
                     words.visibility = if (focused) View.VISIBLE else View.INVISIBLE
                 }
-            } else rowFocus(radius, rest = { glass(radius) }) { focused ->
-                words.visibility = if (focused) View.VISIBLE else View.INVISIBLE
+            } else {
+                fun face(focused: Boolean) = android.graphics.drawable.LayerDrawable(arrayOf(
+                    rounded(VIDEO_CONTROL_BASE, radius), glass(radius, focused)))
+                background = face(false)
+                setOnFocusChangeListener { view, focused ->
+                    view.background = face(focused)
+                    words.visibility = if (focused) View.VISIBLE else View.INVISIBLE
+                }
             }
             setOnClickListener { onClick() }
         }
@@ -1961,7 +1967,7 @@ class PlayerActivity : Screen() {
             addView(list)
             setPadding(dp(22), dp(20), dp(22), dp(22))
             clipToPadding = false
-            background = android.graphics.drawable.LayerDrawable(arrayOf(rounded(0xF00E0C0A.toInt(), 14), glass(14)))
+            background = videoGlass(14)
         }, FrameLayout.LayoutParams(dp(310), resources.displayMetrics.heightPixels - dp(54)).apply {
             leftMargin = dp(27); topMargin = dp(27)
         })

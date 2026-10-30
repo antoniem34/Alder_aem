@@ -499,7 +499,7 @@ class DetailsActivity : Screen() {
     // ---------- glass and episode guide ----------
 
     private fun glassPane() = FrameLayout(this).apply {
-        background = glassOver(this, 14, shade = PANE_SHADE)
+        background = glassOver(this, 14, shade = FROST_DENSE)
         clipToOutline = true
         outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(view: View, outline: android.graphics.Outline) =
@@ -1204,7 +1204,8 @@ class DetailsActivity : Screen() {
                 isFocusable = true
                 minimumHeight = dp(28)
                 setPadding(dp(4), dp(4), dp(11), dp(4))
-                background = glass(14)
+                val rest = glassOver(this, 14, shade = FROST_DENSE)
+                background = rest
 
                 val avatarSize = dp(20)
                 val avatarFrame = FrameLayout(context).apply {
@@ -1237,7 +1238,7 @@ class DetailsActivity : Screen() {
                 }
                 addView(avatarFrame, LinearLayout.LayoutParams(avatarSize, avatarSize).apply { marginEnd = dp(7) })
 
-                val nameView = text(castChipLabel(actor), SMALL, color = TEXT_2).apply {
+                val nameView = text(castChipLabel(actor), SMALL, color = TEXT).apply {
                     includeFontPadding = false
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
@@ -1246,9 +1247,9 @@ class DetailsActivity : Screen() {
                 addView(nameView, wrap())
 
                 setOnFocusChangeListener { v, has ->
-                    v.background = glass(14, has)
+                    v.background = if (has) glass(14, true) else rest
                     v.grow(has, CHIP_GROW).start()
-                    nameView.setTextColor(if (has) TEXT else TEXT_2)
+                    nameView.setTextColor(TEXT)
                 }
                 setOnClickListener { showFilmography(actor, this) }
             }
@@ -1261,16 +1262,16 @@ class DetailsActivity : Screen() {
         val totalCastCount = (richCast.ifEmpty { allMembers }).size
         val remainingCount = totalCastCount - members.size
         if (remainingCount > 0) {
-            val moreChip = text("+$remainingCount more", SMALL, color = TEXT_2).apply {
+            val moreChip = text("+$remainingCount more", SMALL, color = TEXT).apply {
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 minHeight = dp(28)
                 setPadding(dp(12), dp(4), dp(12), dp(4))
-                background = glass(14)
+                val rest = glassOver(this, 14, shade = FROST_DENSE)
+                background = rest
                 isFocusable = true
                 setOnFocusChangeListener { v, has ->
-                    v.background = glass(14, has)
-                    setTextColor(if (has) TEXT else TEXT_2)
+                    v.background = if (has) glass(14, true) else rest
                     v.grow(has, CHIP_GROW).start()
                 }
                 setOnClickListener { showInfo(focusCast = true) }
@@ -1627,7 +1628,6 @@ class DetailsActivity : Screen() {
     }
 
     private companion object {
-        const val PANE_SHADE = 0.55f // the episode panel's frost, darkened to the mock's smoked glass
         const val GUIDE_ART = 0.6f // the film's brightness behind the episode guide
         const val STARTED = 60_000L // ms watched before a title counts as started
     }

@@ -42,6 +42,9 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Blur episode thumbnails.** Turn on **Settings → Profile → Blur episode thumbnails**. Alder blurs pictures of unwatched episodes to prevent spoilers.
 
 ### Easier to use
+- **Clearer title page.** Cast names stay clear in dark glass capsules.
+- **Clearer menus.** Add-on lists, Search, and choice menus use glass that is easy to read.
+- **Clearer player controls.** The control bar shows more video. Player tags and panels use dark glass.
 - **What's new showcase.** The update screen shows important changes first. Select **See all changes** to read the full list.
 <!-- Spotlight -->
 - **Direct play.** When you select Play, Alder starts the video directly. A progress indicator shows while Alder finds the best source. To see all sources, hold OK.
