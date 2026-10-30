@@ -37,17 +37,19 @@ object Stremio {
 
     /** The addons installed on the account, in the account's order. Kept in memory until [refresh]. */
     fun addons(authKey: String, refresh: Boolean = false): List<Addon> {
-        if (!refresh) addonsCache[authKey]?.let { return it }
+        if (!refresh) addonsCache[authKey]?.let { return BundledAddons.withKitsu(it) }
         val body = addonsBody(authKey)
         val answer = Http.post(API + "addonCollectionGet", body)
         return result(answer).getJSONArray("addons").objects().map(::Addon)
             .also { addonsCache[authKey] = it; Http.keep(API + "addonCollectionGet", body, answer) }
+            .let(BundledAddons::withKitsu)
     }
 
     /** The addon list as it was last time, from disk (null if never fetched), so Home can start before the network answers. */
     fun savedAddons(authKey: String): List<Addon>? = Http.savedAnswer(API + "addonCollectionGet", addonsBody(authKey))
         ?.let { runCatching { result(it).getJSONArray("addons").objects().map(::Addon) }.getOrNull() }
         ?.also { addonsCache.putIfAbsent(authKey, it) } // until the fresh list arrives, details are asked of these
+        ?.let(BundledAddons::withKitsu)
 
     private fun addonsBody(authKey: String) =
         JSONObject().put("type", "AddonCollectionGet").put("authKey", authKey).put("update", true).toString()
@@ -55,9 +57,9 @@ object Stremio {
     /** Replaces the account's addon list (and order) with [addons]. */
     fun setAddons(authKey: String, addons: List<Addon>) {
         val body = JSONObject().put("type", "AddonCollectionSet").put("authKey", authKey)
-            .put("addons", JSONArray(addons.map { it.descriptor }))
+            .put("addons", JSONArray(BundledAddons.accountOnly(addons).map { it.descriptor }))
         result(post("addonCollectionSet", body))
-        addonsCache[authKey] = addons
+        addonsCache[authKey] = BundledAddons.accountOnly(addons)
     }
 
     /** Library items (watch history included): the given ids, or every item when [ids] is empty. */
