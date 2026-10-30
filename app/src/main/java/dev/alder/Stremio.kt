@@ -56,10 +56,14 @@ object Stremio {
 
     /** Replaces the account's addon list (and order) with [addons]. */
     fun setAddons(authKey: String, addons: List<Addon>) {
+        // Preserve any Kitsu installation already present in the Stremio account.
+        // The bundled copy is local only and must not be uploaded.
+        val originalKitsu = addonsCache[authKey].orEmpty().filter { it.id == BundledAddons.KITSU_ID }
+        val accountAddons = BundledAddons.accountOnly(addons) + originalKitsu
         val body = JSONObject().put("type", "AddonCollectionSet").put("authKey", authKey)
-            .put("addons", JSONArray(BundledAddons.accountOnly(addons).map { it.descriptor }))
+            .put("addons", JSONArray(accountAddons.map { it.descriptor }))
         result(post("addonCollectionSet", body))
-        addonsCache[authKey] = BundledAddons.accountOnly(addons)
+        addonsCache[authKey] = accountAddons
     }
 
     /** Library items (watch history included): the given ids, or every item when [ids] is empty. */
