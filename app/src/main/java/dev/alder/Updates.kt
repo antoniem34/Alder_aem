@@ -63,15 +63,25 @@ object Updates {
         return true
     }
 
-    fun canInstall(c: Context) = c.packageManager.canRequestPackageInstalls()
+    fun canInstall(c: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= 26) c.packageManager.canRequestPackageInstalls()
+        else try {
+            @Suppress("DEPRECATION")
+            android.provider.Settings.Secure.getInt(c.contentResolver, android.provider.Settings.Secure.INSTALL_NON_MARKET_APPS) == 1
+        } catch (_: Exception) { true }
 
     /**
      * Opens Android's page for letting Alder install apps. False when this TV has no such page (some Fire TV models
      * keep it under Developer options instead): starting it there crashed Alder.
      */
     fun askToInstall(c: Context): Boolean = try {
-        c.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            android.net.Uri.parse("package:${c.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        if (Build.VERSION.SDK_INT >= 26) {
+            c.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:${c.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } else {
+            c.startActivity(Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+
         true
     } catch (e: RuntimeException) { // ActivityNotFoundException, or a SecurityException from a locked-down settings app
         android.util.Log.w("Alder", "no install permission page: $e")
