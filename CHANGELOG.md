@@ -48,7 +48,8 @@ Put changes that are not released under `## Unreleased`. Before each release, re
 - **Faster update checks.** Alder checks for new releases every 4 hours instead of once a day.
 
 ### Fixes
-- **Remote focus in Audio & subtitles.** Selecting an audio or subtitle track keeps remote focus on the selected track and does not reset the scroll position. Scrolling between tracks operates smoothly without focus jumps.
+- **Remote focus and scrolling in Audio & subtitles.** Selecting an audio or subtitle track keeps remote focus on the selected track and does not reset the scroll position. Scrolling between tracks operates smoothly without focus jumps.
+- **Glass overlay in Audio & subtitles.** The Audio & subtitles panel and quick timing card use the Alder smoked glass recipe.
 - **Cleaner title page.** The light around **Play** and **Resume** sits in the center. Cast names stay inside the screen margins. Action buttons align in the center.
 - **Install on Fire TV.** Alder installs on Fire TV and Fire OS devices without a package parse error.
 - **Support older TV devices.** Alder supports Android 6.0 and Fire OS 6 devices, such as Fire TV Stick 4K.

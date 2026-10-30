@@ -1799,7 +1799,7 @@ class PlayerActivity : Screen() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(20), dp(22), dp(22))
             clipToPadding = false
-            background = LayerDrawable(arrayOf(rounded(0xF00E0C0A.toInt(), 14), glass(14)))
+            background = glass(14)
         }
         val sheetWidth = dp(460)
         options.addView(sheet, FrameLayout.LayoutParams(sheetWidth, resources.displayMetrics.heightPixels - dp(54)).apply {
@@ -1815,7 +1815,7 @@ class PlayerActivity : Screen() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(3), dp(3), dp(3), dp(3))
-            background = rounded(0x3328221C, 16)
+            background = glass(18)
         }
         sheet.addView(tabsRow, LinearLayout.LayoutParams(-1, dp(36)).apply {
             topMargin = dp(14); bottomMargin = dp(12)
@@ -1828,24 +1828,13 @@ class PlayerActivity : Screen() {
         val panelsContainer = FrameLayout(this).apply {
             clipChildren = false
             clipToPadding = false
+            setPadding(0, 0, 0, dp(48))
         }
-        val contentScroll = object : ScrollView(this) {
-            override fun computeScrollDeltaToGetChildRectOnScreen(rect: Rect): Int {
-                if (childCount == 0) return 0
-                val screenTop = scrollY
-                val screenBottom = screenTop + height
-                val margin = dp(44)
-                return when {
-                    rect.top < screenTop + margin -> rect.top - (screenTop + margin)
-                    rect.bottom > screenBottom - margin -> rect.bottom - (screenBottom - margin)
-                    else -> 0
-                }
-            }
-        }.apply {
+        val contentScroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
             clipToPadding = false
             clipChildren = false
-            isSmoothScrollingEnabled = true
+            isFillViewport = true
             addView(panelsContainer, FrameLayout.LayoutParams(-1, -2))
         }
         sheet.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -2103,7 +2092,7 @@ class PlayerActivity : Screen() {
         val quickTimingCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(0x221C1814.toInt(), 8)
+            background = glass(8)
             visibility = if (currentSelectedSubId == "sub:0") View.GONE else View.VISIBLE
         }
         quickTimingCard.addView(caps("QUICK TIMING", TEXT_3), wrap().apply { bottomMargin = dp(6) })
